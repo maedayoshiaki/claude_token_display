@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: '--target aarch64-apple-darwin'
+          - platform: macos-latest
+            args: '--target x86_64-apple-darwin'
+          - platform: windows-latest
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache cargo
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+          key: ${{ matrix.platform }}-${{ matrix.args }}
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build & release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: '${{ github.ref_name }}'
+          releaseBody: |
+            ## ダウンロード
+
+            - **macOS (Apple Silicon)**: `*_aarch64.dmg`
+            - **macOS (Intel)**: `*_x64.dmg`
+            - **Windows**: `*_x64-setup.exe` または `*_x64_en-US.msi`
+
+            ## 前提
+            `claude` CLI でログイン済みであること。未ログインの場合は `claude` を起動してログインしてください。
+
+            ## 初回起動
+
+            **macOS**: 「開発元未確認」と出たら右クリック → 開く。
+            **Windows**: SmartScreen が出たら「詳細情報」→「実行」。
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
