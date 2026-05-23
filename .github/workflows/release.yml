@@ -24,23 +24,33 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Setup Rust
+      - name: Setup Rust (macOS targets)
+        if: matrix.platform == 'macos-latest'
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Setup Rust (Windows)
+        if: matrix.platform == 'windows-latest'
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
-          key: ${{ matrix.platform }}-${{ matrix.args }}
+          shared-key: ${{ matrix.platform }}-${{ matrix.args }}
 
       - name: Install npm dependencies
         run: npm ci
