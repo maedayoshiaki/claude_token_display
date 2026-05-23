@@ -17,10 +17,13 @@ jobs:
         include:
           - platform: macos-latest
             args: '--target aarch64-apple-darwin'
+            artifact_name: macos-aarch64
           - platform: macos-latest
             args: '--target x86_64-apple-darwin'
+            artifact_name: macos-x86_64
           - platform: windows-latest
             args: ''
+            artifact_name: windows-x86_64
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -55,14 +58,59 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Build & release
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build (no release upload)
+        run: npx tauri build ${{ matrix.args }}
+
+      - name: Collect bundle artifacts
+        shell: bash
+        run: |
+          set -e
+          mkdir -p artifacts
+          case "${{ matrix.args }}" in
+            "--target aarch64-apple-darwin")
+              cp src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg artifacts/ ;;
+            "--target x86_64-apple-darwin")
+              cp src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg artifacts/ ;;
+            "")
+              cp src-tauri/target/release/bundle/msi/*.msi artifacts/ 2>/dev/null || true
+              cp src-tauri/target/release/bundle/nsis/*.exe artifacts/ 2>/dev/null || true
+              ;;
+          esac
+          ls -la artifacts/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: '${{ github.ref_name }}'
-          releaseBody: |
+          name: ${{ matrix.artifact_name }}
+          path: artifacts/
+          if-no-files-found: warn
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Flatten directory
+        run: |
+          mkdir -p out
+          find dist -type f \( -name "*.dmg" -o -name "*.exe" -o -name "*.msi" \) -exec cp {} out/ \;
+          ls -la out/
+
+      - name: Create / update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          draft: true
+          prerelease: false
+          files: out/*
+          body: |
             ## ダウンロード
 
             - **macOS (Apple Silicon)**: `*_aarch64.dmg`
@@ -76,6 +124,5 @@ jobs:
 
             **macOS**: 「開発元未確認」と出たら右クリック → 開く。
             **Windows**: SmartScreen が出たら「詳細情報」→「実行」。
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
