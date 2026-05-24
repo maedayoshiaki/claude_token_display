@@ -16,7 +16,7 @@ Claude Max プランの使用枠 (5時間セッション %、週間 %、Sonnet �
 
 ## 前提
 
-- **`claude` CLI でログイン済み**であること（OAuth トークンを OS の keystore から借ります）
+- **`claude` CLI でログイン済み**であること（Claude Code の OAuth トークンを読み取ります）
 - 未ログインの場合: ターミナルで `claude` を起動するとブラウザでログインフローが始まります。完了したらこのアプリを起動
 
 ## 初回起動時の注意
@@ -26,6 +26,8 @@ Claude Max プランの使用枠 (5時間セッション %、週間 %、Sonnet �
 初回はメニューバー上で **「`/usr/bin/security` が "Claude Code-credentials" にアクセスしようとしています」** というダイアログが出ます。**「常に許可」** をクリックしてください（「許可」だと毎回出ます）。
 
 **Windows**: SmartScreen が出たら「詳細情報」→「実行」。
+
+Windows では Claude Code の認証情報は通常 `%USERPROFILE%\.claude\.credentials.json` にあります。`CLAUDE_CONFIG_DIR` を設定している場合は、そのディレクトリ配下の `.credentials.json` を読みます。
 
 ## 使い方
 

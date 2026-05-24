@@ -27,8 +27,72 @@ static TRAY_W: AtomicI32 = AtomicI32::new(0);
 static TRAY_H: AtomicI32 = AtomicI32::new(0);
 static TRAY_RECT_SET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// popover y のトレイ底からのオフセット (physical px)。重なる/離れすぎを微調整するならここ。
-const POPOVER_Y_OFFSET: i32 = 0;
+/// popover とタスクバー / メニューバーの間隔 (physical px)。
+const POPOVER_GAP: i32 = 8;
+/// 画面端にぴったり付けず、わずかに内側へ収める余白 (physical px)。
+const SCREEN_MARGIN: i32 = 8;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ScreenRect {
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct WindowSize {
+    w: i32,
+    h: i32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ScreenInfo {
+    full: ScreenRect,
+    work: ScreenRect,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ScreenEdge {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+impl ScreenRect {
+    fn right(self) -> i32 {
+        self.x + self.w
+    }
+
+    fn bottom(self) -> i32 {
+        self.y + self.h
+    }
+
+    fn center_x(self) -> i32 {
+        self.x + self.w / 2
+    }
+
+    fn center_y(self) -> i32 {
+        self.y + self.h / 2
+    }
+
+    fn contains_point(self, x: i32, y: i32) -> bool {
+        x >= self.x && x < self.right() && y >= self.y && y < self.bottom()
+    }
+
+    fn inset(self, margin: i32) -> Self {
+        if self.w <= margin * 2 || self.h <= margin * 2 {
+            return self;
+        }
+        Self {
+            x: self.x + margin,
+            y: self.y + margin,
+            w: self.w - margin * 2,
+            h: self.h - margin * 2,
+        }
+    }
+}
 
 /// 最後に成功 / 失敗した取得結果のキャッシュ。クリックや popover オープン時はこれを返す。
 type Cache = Arc<Mutex<FetchResult>>;
@@ -202,14 +266,21 @@ fn toggle_popover<R: Runtime>(app: &AppHandle<R>, cache: &Cache) {
 
     // 自前で位置計算: 記録したトレイ矩形 + window outer_size から popover の (x,y) を決める
     if TRAY_RECT_SET.load(Ordering::SeqCst) {
-        let tray_x = TRAY_X.load(Ordering::SeqCst);
-        let tray_y = TRAY_Y.load(Ordering::SeqCst);
-        let tray_w = TRAY_W.load(Ordering::SeqCst);
-        let tray_h = TRAY_H.load(Ordering::SeqCst);
+        let tray_rect = ScreenRect {
+            x: TRAY_X.load(Ordering::SeqCst),
+            y: TRAY_Y.load(Ordering::SeqCst),
+            w: TRAY_W.load(Ordering::SeqCst),
+            h: TRAY_H.load(Ordering::SeqCst),
+        };
         if let Ok(win_size) = window.outer_size() {
-            let win_w = win_size.width as i32;
-            let x = tray_x + tray_w / 2 - win_w / 2;
-            let y = tray_y + tray_h + POPOVER_Y_OFFSET;
+            let win_size = WindowSize {
+                w: win_size.width as i32,
+                h: win_size.height as i32,
+            };
+            let (x, y) = match screen_info_for_tray(&window, tray_rect) {
+                Some(screen) => popover_position(tray_rect, win_size, screen),
+                None => fallback_popover_position(tray_rect, win_size),
+            };
             let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
         }
     } else {
@@ -248,6 +319,116 @@ fn tray_rect(event: &TrayIconEvent) -> Option<((i32, i32), (i32, i32))> {
     let pos = rect.position.to_physical::<i32>(1.0);
     let size = rect.size.to_physical::<i32>(1.0);
     Some(((pos.x, pos.y), (size.width, size.height)))
+}
+
+fn screen_info_for_tray<R: Runtime>(
+    window: &tauri::WebviewWindow<R>,
+    tray: ScreenRect,
+) -> Option<ScreenInfo> {
+    let monitors = window.available_monitors().ok()?;
+    let center_x = tray.center_x();
+    let center_y = tray.center_y();
+
+    monitors
+        .iter()
+        .find(|monitor| {
+            screen_info_from_monitor(monitor)
+                .full
+                .contains_point(center_x, center_y)
+        })
+        .or_else(|| monitors.first())
+        .map(screen_info_from_monitor)
+}
+
+fn screen_info_from_monitor(monitor: &tauri::Monitor) -> ScreenInfo {
+    let pos = monitor.position();
+    let size = monitor.size();
+    let work = monitor.work_area();
+    ScreenInfo {
+        full: ScreenRect {
+            x: pos.x,
+            y: pos.y,
+            w: size.width as i32,
+            h: size.height as i32,
+        },
+        work: ScreenRect {
+            x: work.position.x,
+            y: work.position.y,
+            w: work.size.width as i32,
+            h: work.size.height as i32,
+        },
+    }
+}
+
+fn popover_position(tray: ScreenRect, win: WindowSize, screen: ScreenInfo) -> (i32, i32) {
+    let (x, y) = match tray_edge(tray, screen) {
+        ScreenEdge::Bottom => (tray.center_x() - win.w / 2, tray.y - POPOVER_GAP - win.h),
+        ScreenEdge::Top => (tray.center_x() - win.w / 2, tray.bottom() + POPOVER_GAP),
+        ScreenEdge::Right => (tray.x - POPOVER_GAP - win.w, tray.center_y() - win.h / 2),
+        ScreenEdge::Left => (tray.right() + POPOVER_GAP, tray.center_y() - win.h / 2),
+    };
+    clamp_to_rect(x, y, win, screen.work.inset(SCREEN_MARGIN))
+}
+
+fn fallback_popover_position(tray: ScreenRect, win: WindowSize) -> (i32, i32) {
+    let y = if cfg!(target_os = "windows") {
+        tray.y - POPOVER_GAP - win.h
+    } else {
+        tray.bottom() + POPOVER_GAP
+    };
+    (tray.center_x() - win.w / 2, y)
+}
+
+fn tray_edge(tray: ScreenRect, screen: ScreenInfo) -> ScreenEdge {
+    let work = screen.work;
+    let full = screen.full;
+    let center_x = tray.center_x();
+    let center_y = tray.center_y();
+
+    if work.bottom() < full.bottom() && center_y >= work.bottom() {
+        return ScreenEdge::Bottom;
+    }
+    if work.y > full.y && center_y <= work.y {
+        return ScreenEdge::Top;
+    }
+    if work.right() < full.right() && center_x >= work.right() {
+        return ScreenEdge::Right;
+    }
+    if work.x > full.x && center_x <= work.x {
+        return ScreenEdge::Left;
+    }
+
+    let bottom_distance = (full.bottom() - tray.bottom()).abs();
+    let top_distance = (tray.y - full.y).abs();
+    let edge_threshold = tray.h.max(32);
+    if bottom_distance <= top_distance && bottom_distance <= edge_threshold {
+        ScreenEdge::Bottom
+    } else if top_distance < bottom_distance && top_distance <= edge_threshold {
+        ScreenEdge::Top
+    } else {
+        let right_distance = (full.right() - tray.right()).abs();
+        let left_distance = (tray.x - full.x).abs();
+        if right_distance <= left_distance {
+            ScreenEdge::Right
+        } else {
+            ScreenEdge::Left
+        }
+    }
+}
+
+fn clamp_to_rect(x: i32, y: i32, win: WindowSize, bounds: ScreenRect) -> (i32, i32) {
+    (
+        clamp_axis(x, bounds.x, bounds.right() - win.w),
+        clamp_axis(y, bounds.y, bounds.bottom() - win.h),
+    )
+}
+
+fn clamp_axis(value: i32, min: i32, max: i32) -> i32 {
+    if max < min {
+        min
+    } else {
+        value.clamp(min, max)
+    }
 }
 
 #[cfg(test)]
@@ -294,5 +475,52 @@ mod tests {
             retry_after_secs: Some(5),
         };
         assert_eq!(decide_sleep(&r), 60);
+    }
+
+    fn rect(x: i32, y: i32, w: i32, h: i32) -> ScreenRect {
+        ScreenRect { x, y, w, h }
+    }
+
+    fn screen(full: ScreenRect, work: ScreenRect) -> ScreenInfo {
+        ScreenInfo { full, work }
+    }
+
+    #[test]
+    fn popover_is_above_bottom_taskbar() {
+        let screen = screen(rect(0, 0, 1920, 1080), rect(0, 0, 1920, 1040));
+        let tray = rect(1800, 1040, 32, 40);
+        let win = WindowSize { w: 340, h: 420 };
+
+        let (x, y) = popover_position(tray, win, screen);
+
+        assert!(y < tray.y);
+        assert!(y + win.h <= screen.work.bottom() - SCREEN_MARGIN);
+        assert!(x + win.w <= screen.work.right() - SCREEN_MARGIN);
+    }
+
+    #[test]
+    fn popover_is_below_top_taskbar() {
+        let screen = screen(rect(0, 0, 1920, 1080), rect(0, 40, 1920, 1040));
+        let tray = rect(1800, 0, 32, 40);
+        let win = WindowSize { w: 340, h: 420 };
+
+        let (_, y) = popover_position(tray, win, screen);
+
+        assert!(y > tray.bottom());
+        assert!(y >= screen.work.y + SCREEN_MARGIN);
+    }
+
+    #[test]
+    fn popover_is_left_of_right_taskbar() {
+        let screen = screen(rect(0, 0, 1920, 1080), rect(0, 0, 1880, 1080));
+        let tray = rect(1880, 500, 40, 32);
+        let win = WindowSize { w: 340, h: 420 };
+
+        let (x, y) = popover_position(tray, win, screen);
+
+        assert!(x < tray.x);
+        assert!(x + win.w <= screen.work.right() - SCREEN_MARGIN);
+        assert!(y >= screen.work.y + SCREEN_MARGIN);
+        assert!(y + win.h <= screen.work.bottom() - SCREEN_MARGIN);
     }
 }

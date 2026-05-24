@@ -3,7 +3,8 @@
 //! - macOS: `/usr/bin/security find-generic-password -a <user> -s "Claude Code-credentials" -w`
 //!          を spawn する。直接 Security framework を叩くと ACL ダイアログが出ない
 //!          ケースがあるため CLI 経由のほうが安定 (参考実装 token-checker と同じ方針)。
-//! - Windows: `keyring` crate で Credential Manager から読み取り。
+//! - Windows: Claude Code 公式の保存先 `%USERPROFILE%\.claude\.credentials.json`
+//!            から読み取り。`CLAUDE_CONFIG_DIR` があればその配下を優先する。
 //!
 //! 値は JSON 文字列で、`claudeAiOauth.accessToken` を取り出す。
 
@@ -20,6 +21,7 @@ pub enum KeychainError {
     NotFound,
 
     #[error("Access to the Claude Code keychain item was denied. Re-run and choose \"Always Allow\" in the dialog.")]
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     AccessDenied,
 
     #[error("Keychain payload is not valid JSON: {0}")]
@@ -86,6 +88,50 @@ fn read_raw() -> Result<String, KeychainError> {
 
 #[cfg(target_os = "windows")]
 fn read_raw() -> Result<String, KeychainError> {
+    // Claude Code 2.x on Windows stores OAuth credentials in this JSON file, not in
+    // Windows Credential Manager. Keep the old Credential Manager lookup as a
+    // fallback in case earlier installs used it.
+    match read_raw_from_credentials_file() {
+        Ok(s) => return Ok(s),
+        Err(KeychainError::NotFound) => {}
+        Err(e) => return Err(e),
+    }
+
+    read_raw_from_credential_manager()
+}
+
+#[cfg(target_os = "windows")]
+fn read_raw_from_credentials_file() -> Result<String, KeychainError> {
+    let path = claude_credentials_path()?;
+    match std::fs::read_to_string(&path) {
+        Ok(s) => Ok(s),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(KeychainError::NotFound),
+        Err(e) => Err(KeychainError::Access(format!(
+            "failed to read {}: {}",
+            path.display(),
+            e
+        ))),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn claude_credentials_path() -> Result<std::path::PathBuf, KeychainError> {
+    if let Some(config_dir) = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty()) {
+        return Ok(std::path::PathBuf::from(config_dir).join(".credentials.json"));
+    }
+
+    let home = std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .ok_or_else(|| {
+            KeychainError::Access("could not determine Claude Code config directory".into())
+        })?;
+    Ok(std::path::PathBuf::from(home)
+        .join(".claude")
+        .join(".credentials.json"))
+}
+
+#[cfg(target_os = "windows")]
+fn read_raw_from_credential_manager() -> Result<String, KeychainError> {
     let user = whoami::username();
     let entry = keyring::Entry::new(SERVICE_NAME, &user)
         .map_err(|e| KeychainError::Access(e.to_string()))?;
