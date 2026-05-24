@@ -15,7 +15,9 @@
 
 use block2::RcBlock;
 use objc2::class;
-use objc2_app_kit::{NSEvent, NSEventMask, NSWindow, NSWindowCollectionBehavior, NSWindowLevel, NSWindowStyleMask};
+use objc2_app_kit::{
+    NSEvent, NSEventMask, NSWindow, NSWindowCollectionBehavior, NSWindowLevel, NSWindowStyleMask,
+};
 use std::ffi::c_void;
 use std::ptr::NonNull;
 use tauri::Manager;
@@ -65,6 +67,9 @@ pub fn convert_to_nspanel<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) {
 /// 発火しないため、これで代替する。
 pub fn install_outside_click_dismiss<R: tauri::Runtime + 'static>(handle: tauri::AppHandle<R>) {
     let block = RcBlock::new(move |_event: NonNull<NSEvent>| {
+        if crate::is_popover_pinned() || crate::is_popover_auto_hide_suppressed() {
+            return;
+        }
         if let Some(window) = handle.get_webview_window("popover") {
             if window.is_visible().unwrap_or(false) {
                 let _ = window.hide();

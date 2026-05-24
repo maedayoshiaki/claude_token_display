@@ -6,13 +6,17 @@ mod tray;
 
 use api::UsageSnapshot;
 use serde::Serialize;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use tauri::Manager;
 
 /// popover が show() された最後の時刻 (epoch ms)。表示直後の
 /// Focused(false) によるオートクローズを抑制するための grace 用。
 pub static SHOWN_AT_MS: AtomicI64 = AtomicI64::new(0);
 const FOCUS_LOSS_GRACE_MS: i64 = 300;
+const RESIZE_AUTO_HIDE_SUPPRESSION_MS: i64 = 4_000;
+
+static POPOVER_PINNED: AtomicBool = AtomicBool::new(false);
+static POPOVER_AUTO_HIDE_SUPPRESSED_UNTIL_MS: AtomicI64 = AtomicI64::new(0);
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -27,17 +31,67 @@ async fn get_usage() -> FetchResult {
     fetch_usage_inner().await
 }
 
+#[tauri::command]
+fn get_popover_pinned() -> bool {
+    is_popover_pinned()
+}
+
+#[tauri::command]
+fn set_popover_pinned(pinned: bool) -> bool {
+    POPOVER_PINNED.store(pinned, Ordering::SeqCst);
+    pinned
+}
+
+#[tauri::command]
+fn suppress_popover_auto_hide() {
+    suppress_popover_auto_hide_for(RESIZE_AUTO_HIDE_SUPPRESSION_MS);
+}
+
+pub fn is_popover_pinned() -> bool {
+    POPOVER_PINNED.load(Ordering::SeqCst)
+}
+
+pub fn is_popover_auto_hide_suppressed() -> bool {
+    now_ms() < POPOVER_AUTO_HIDE_SUPPRESSED_UNTIL_MS.load(Ordering::SeqCst)
+}
+
+fn suppress_popover_auto_hide_for(duration_ms: i64) {
+    POPOVER_AUTO_HIDE_SUPPRESSED_UNTIL_MS.store(now_ms() + duration_ms, Ordering::SeqCst);
+}
+
+fn focus_loss_should_be_ignored(
+    pinned: bool,
+    shown_at: i64,
+    suppressed_until: i64,
+    now: i64,
+) -> bool {
+    pinned || now < suppressed_until || now - shown_at < FOCUS_LOSS_GRACE_MS
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 pub async fn fetch_usage_inner() -> FetchResult {
     let token = match keychain::read_access_token() {
         Ok(t) => t,
-        Err(e) => return FetchResult::Err { message: e.to_string() },
+        Err(e) => {
+            return FetchResult::Err {
+                message: e.to_string(),
+            }
+        }
     };
     match api::fetch_usage(&token).await {
         Ok(snapshot) => FetchResult::Ok(snapshot),
         Err(api::ApiError::RateLimited { retry_after_secs }) => {
             FetchResult::RateLimited { retry_after_secs }
         }
-        Err(e) => FetchResult::Err { message: e.to_string() },
+        Err(e) => FetchResult::Err {
+            message: e.to_string(),
+        },
     }
 }
 
@@ -45,7 +99,12 @@ pub async fn fetch_usage_inner() -> FetchResult {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_positioner::init())
-        .invoke_handler(tauri::generate_handler![get_usage])
+        .invoke_handler(tauri::generate_handler![
+            get_usage,
+            get_popover_pinned,
+            set_popover_pinned,
+            suppress_popover_auto_hide
+        ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
             {
@@ -68,13 +127,16 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Focused(false) = event {
                 if window.label() == "popover" {
-                    // show 直後の数百ms はフルスクリーン下での race を避けるため無視
                     let shown_at = SHOWN_AT_MS.load(Ordering::SeqCst);
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_millis() as i64)
-                        .unwrap_or(0);
-                    if now - shown_at < FOCUS_LOSS_GRACE_MS {
+                    let suppressed_until =
+                        POPOVER_AUTO_HIDE_SUPPRESSED_UNTIL_MS.load(Ordering::SeqCst);
+                    let now = now_ms();
+                    if focus_loss_should_be_ignored(
+                        is_popover_pinned(),
+                        shown_at,
+                        suppressed_until,
+                        now,
+                    ) {
                         return;
                     }
                     let _ = window.hide();
@@ -83,4 +145,29 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn focus_loss_is_ignored_while_pinned() {
+        assert!(focus_loss_should_be_ignored(true, 0, 0, 1_000));
+    }
+
+    #[test]
+    fn focus_loss_is_ignored_during_show_grace() {
+        assert!(focus_loss_should_be_ignored(false, 1_000, 0, 1_100));
+    }
+
+    #[test]
+    fn focus_loss_is_ignored_during_resize_suppression() {
+        assert!(focus_loss_should_be_ignored(false, 0, 2_000, 1_000));
+    }
+
+    #[test]
+    fn focus_loss_is_not_ignored_after_grace_and_suppression() {
+        assert!(!focus_loss_should_be_ignored(false, 1_000, 1_500, 2_000));
+    }
 }

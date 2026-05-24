@@ -49,7 +49,7 @@ struct RawUsage {
 pub struct Bucket {
     /// 0.0 〜 1.0+（API は 0〜100 で返すので /100 する。1 超過は仕様上ありうる）。
     pub utilization: f64,
-    pub resets_at: DateTime<Utc>,
+    pub resets_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Serialize, Clone, Debug, Default)]
@@ -63,14 +63,56 @@ pub struct UsageSnapshot {
 impl RawBucket {
     fn into_bucket(self) -> Option<Bucket> {
         let util = self.utilization?;
-        let resets = self.resets_at?;
-        let resets_at = DateTime::parse_from_rfc3339(&resets)
-            .ok()?
-            .with_timezone(&Utc);
+        let resets_at = self
+            .resets_at
+            .and_then(|resets| DateTime::parse_from_rfc3339(&resets).ok())
+            .map(|resets| resets.with_timezone(&Utc));
         Some(Bucket {
             utilization: util / 100.0,
             resets_at,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keeps_bucket_when_resets_at_is_missing() {
+        let bucket = RawBucket {
+            utilization: Some(43.0),
+            resets_at: None,
+        }
+        .into_bucket()
+        .expect("utilization-only bucket should be kept");
+
+        assert!((bucket.utilization - 0.43).abs() < f64::EPSILON);
+        assert!(bucket.resets_at.is_none());
+    }
+
+    #[test]
+    fn keeps_bucket_when_resets_at_is_invalid() {
+        let bucket = RawBucket {
+            utilization: Some(17.0),
+            resets_at: Some("not a date".to_string()),
+        }
+        .into_bucket()
+        .expect("invalid reset timestamp should not drop utilization");
+
+        assert!((bucket.utilization - 0.17).abs() < f64::EPSILON);
+        assert!(bucket.resets_at.is_none());
+    }
+
+    #[test]
+    fn drops_bucket_when_utilization_is_missing() {
+        let bucket = RawBucket {
+            utilization: None,
+            resets_at: Some("2026-05-24T00:00:00Z".to_string()),
+        }
+        .into_bucket();
+
+        assert!(bucket.is_none());
     }
 }
 

@@ -10,7 +10,12 @@
     <main class="card">
       <header class="card__header">
         <h1>Claude プラン使用状況</h1>
-        <button id="refresh" class="icon-btn" title="Refresh">⟳</button>
+        <div class="header-actions">
+          <button id="font-smaller" class="icon-btn" title="文字を小さく" aria-label="文字を小さく">A-</button>
+          <button id="font-larger" class="icon-btn" title="文字を大きく" aria-label="文字を大きく">A+</button>
+          <button id="pin" class="icon-btn icon-btn--pin" title="固定表示" aria-label="固定表示" aria-pressed="false">固定</button>
+          <button id="refresh" class="icon-btn" title="Refresh" aria-label="Refresh">⟳</button>
+        </div>
       </header>
 
       <div id="content">
@@ -47,6 +52,7 @@
       <footer class="card__footer">
         <span id="updated-at">—</span>
       </footer>
+      <div id="resize-handle" class="resize-handle" aria-hidden="true"></div>
     </main>
     <script src="main.js" defer></script>
   </body>

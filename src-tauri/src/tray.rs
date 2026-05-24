@@ -189,11 +189,7 @@ fn decide_sleep(r: &FetchResult) -> u64 {
     }
 }
 
-fn update_cache_and_emit<R: Runtime>(
-    handle: &AppHandle<R>,
-    cache: &Cache,
-    result: FetchResult,
-) {
+fn update_cache_and_emit<R: Runtime>(handle: &AppHandle<R>, cache: &Cache, result: FetchResult) {
     if let Some(tray) = handle.tray_by_id("main") {
         update_tray(&tray, &result);
     }
@@ -248,6 +244,14 @@ fn toggle_popover<R: Runtime>(app: &AppHandle<R>, cache: &Cache) {
         return;
     };
     if window.is_visible().unwrap_or(false) {
+        if crate::is_popover_pinned() {
+            let _ = window.show();
+            #[cfg(target_os = "macos")]
+            crate::macos_panel::order_front_regardless(&window);
+            #[cfg(not(target_os = "macos"))]
+            let _ = window.set_focus();
+            return;
+        }
         let _ = window.hide();
         return;
     }
@@ -440,7 +444,7 @@ mod tests {
     fn b(u: f64) -> Bucket {
         Bucket {
             utilization: u,
-            resets_at: Utc::now(),
+            resets_at: Some(Utc::now()),
         }
     }
 
