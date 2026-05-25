@@ -3,8 +3,6 @@
 //! Headers:
 //!   Authorization: Bearer <access_token>
 //!   anthropic-beta: oauth-2025-04-20
-//!
-//! 参考: reference implementation の AnthropicUsageAPIClient.swift
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

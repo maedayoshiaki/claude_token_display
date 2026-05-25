@@ -13,18 +13,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### 参考にした実装
 
-`reference implementation` (Swift native, macOS only)。Keychain サービス名・API URL・ヘッダ・レスポンス DTO はこれをそのまま流用している。我々の差分は **Tauri による Win 対応** と **frontend を Web 化** したこと。
+macOS 向けの Swift native 実装。Keychain サービス名・API URL・ヘッダ・レスポンス DTO はこれを参考にしている。我々の差分は **Tauri による Win 対応** と **frontend を Web 化** したこと。
 
 ## 進捗トラッカー
 
 ### Phase 0: 設計と骨組み ✅
 - [x] 技術選定 (Tauri 2.x)
-- [x] git init + ローカル user.name/user.email を `<your name> / <your email>` に設定
+- [x] git init + ローカル user.name/user.email を設定
 - [x] CLAUDE.md / README.md / .gitignore / package.json / Cargo.toml / tauri.conf.json
 
 ### Phase 0.5: 要件再確認とピボット ✅
 - [x] 初期はローカル JSONL 集計で実装 → 要件は「プラン使用枠の % と リセット時刻」と判明
-- [x] `reference implementation` 解析: 「Keychain → /api/oauth/usage」が現実的だと確認
+- [x] 参考実装の解析: 「Keychain → /api/oauth/usage」が現実的だと確認
 - [x] バックエンドを **OAuth API クライアント方式**に書き換え
 
 ### Phase 1: バックエンド ✅
@@ -45,7 +45,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [ ] `npm run tauri dev` で起動確認、初回 keychain アクセス許可ダイアログを「常に許可」で承認
 - [ ] メニューバーに「43% · 17%」のような表示が出ることを確認
 - [ ] アイコンクリックで詳細ポップオーバーが開くことを確認
-- [ ] 初回コミット & GitHub push (`OWNER/REPO`)
+- [ ] 初回コミット & GitHub push
 
 ### Phase 4: Windows 対応の検証
 - [ ] Windows 機での `cargo build` 確認
@@ -150,7 +150,7 @@ cd src-tauri && cargo test
 
 ## Git / GitHub
 
-ローカル設定済み:
+ローカル設定:
 ```
 user.name  = <your name>
 user.email = <your email>
@@ -159,7 +159,7 @@ push 先: `https://github.com/OWNER/REPO.git`
 
 ## 設計判断のメモ
 
-- **OAuth API 方式**を選んだ理由: Webview 埋め込み・手動トークン貼り付けより自動度が高く、参考実装 (`reference implementation`) で実績があるため。
+- **OAuth API 方式**を選んだ理由: Webview 埋め込み・手動トークン貼り付けより自動度が高く、参考実装で実績があるため。
 - **frontend をバンドラレス**にした理由: 単一 HTML/JS で十分。Vite を入れると tauri dev の起動が重くなる。`withGlobalTauri: true` で `window.__TAURI__` 経由で API を叩く。
 - **ポーリング 5分**: バケットは時間単位で動くので 30秒では細かすぎる。手動 refresh ボタンも用意。
 - **トレイ title 表記**: macOS は `set_title` がメニューバーに反映される。Windows のシステムトレイは title 非対応のため、同じ文字列を tooltip にもセット。
