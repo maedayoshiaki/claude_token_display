@@ -49,7 +49,7 @@ body {
   min-height: 0;
   background: var(--bg);
   border-radius: 0;
-  padding: 14px;
+  padding: 8px 14px 10px;
   overflow: hidden;
 }
 
@@ -59,8 +59,12 @@ body {
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 6px;
+  margin-bottom: 2px;
   user-select: none;
+}
+.header-actions--right {
+  margin-left: auto;
+  flex: 0 0 auto;
 }
 
 body[data-pinned="true"] .card__header {
@@ -89,6 +93,19 @@ body[data-pinned="true"] .card__header {
 }
 .icon-btn--pin {
   min-width: calc(54px * var(--text-scale));
+}
+/* 📌 のカラー絵文字を常にモノクロ化 (VS15 が効かない環境のフォールバック)。
+   ピン on/off は親 .icon-btn[aria-pressed="true"] の背景色 (var(--divider)) で表現する */
+.icon-btn--pin-glyph {
+  font-family: "Segoe UI Symbol", "Segoe UI", "Apple Symbols", -apple-system,
+    sans-serif;
+  filter: grayscale(1);
+}
+.icon-btn--small {
+  min-width: calc(18px * var(--text-scale));
+  height: calc(20px * var(--text-scale));
+  font-size: calc(11px * var(--text-scale));
+  padding: 0 3px;
 }
 .icon-btn[aria-pressed="true"] {
   background: var(--divider);
@@ -123,12 +140,18 @@ body[data-pinned="true"] .card__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   font-size: calc(12px * var(--text-scale));
   color: var(--fg-dim);
+  min-width: 0;
 }
 .settings__label {
   flex: 0 0 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .settings__control {
   flex: 1 1 auto;
@@ -141,9 +164,20 @@ body[data-pinned="true"] .card__header {
   min-width: 0;
 }
 .settings__control--num {
-  width: calc(60px * var(--text-scale));
+  width: calc(52px * var(--text-scale));
+  min-width: calc(44px * var(--text-scale));
   flex: 0 0 auto;
   text-align: right;
+  padding: 2px 4px;
+  /* スピナーを非表示にしてテキスト領域を最大化 */
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.settings__control--num::-webkit-inner-spin-button,
+.settings__control--num::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
 }
 .settings__control--check {
   width: auto;
@@ -152,11 +186,14 @@ body[data-pinned="true"] .card__header {
 .settings__inline {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
+  min-width: 0;
+  flex: 0 1 auto;
 }
 .settings__suffix {
   font-size: calc(11px * var(--text-scale));
   color: var(--fg-dim);
+  flex: 0 0 auto;
 }
 
 .bucket {
@@ -280,6 +317,17 @@ body[data-pinned="true"] .card__header {
   background: var(--bar-fill-high);
 }
 
+/* バー非表示時は hero のバーだけ消し、その分の縦余白も詰める */
+body[data-show-bar="false"] .bucket--hero .bar {
+  display: none;
+}
+body[data-show-bar="false"] .bucket--hero {
+  padding-bottom: 0;
+}
+body[data-show-bar="false"] .bucket--hero .bucket__row {
+  margin-bottom: 0;
+}
+
 #content {
   flex: 1;
   min-height: 0;
@@ -303,17 +351,25 @@ body[data-pinned="true"] .card__header {
 }
 .provider__head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  flex-wrap: nowrap;
+  gap: 6px;
   margin-bottom: 0;
+  min-width: 0;
+  user-select: none;
 }
 .provider__name {
+  flex: 0 1 auto;
+  min-width: 0;
   font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.08em;
   color: var(--fg-dim);
   text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .provider__primary {
   font-size: calc(9px * var(--text-scale));
@@ -356,42 +412,24 @@ body[data-pinned="true"] .card__header {
 }
 
 .card__footer {
-  margin-top: 8px;
+  margin-top: 6px;
   flex: 0 0 auto;
   font-size: calc(10px * var(--text-scale));
   color: var(--fg-dim);
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
+/* 視覚的なグリップは廃止。右下の不可視な操作エリアだけ残してドラッグでリサイズ可能。 */
 .resize-handle {
   display: block;
   position: absolute;
-  right: 7px;
-  bottom: 7px;
-  width: 18px;
-  height: 18px;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
   cursor: nwse-resize;
-}
-
-.resize-handle::before,
-.resize-handle::after {
-  content: "";
-  position: absolute;
-  right: 2px;
-  bottom: 2px;
-  border-right: 1px solid var(--fg-dim);
-  border-bottom: 1px solid var(--fg-dim);
-  opacity: 0.7;
-}
-
-.resize-handle::before {
-  width: 12px;
-  height: 12px;
-}
-
-.resize-handle::after {
-  width: 7px;
-  height: 7px;
+  background: transparent;
 }
 
 @media (max-width: 240px) {

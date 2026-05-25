@@ -7,9 +7,9 @@ const $ = (sel) => document.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
 const TEXT_SCALE_KEY = "token_display_text_scale";
-const PROVIDER_KEY = "token_display_provider";
 const INTERVAL_MIN_KEY = "token_display_interval_min";
 const SONNET_VISIBLE_KEY = "token_display_sonnet_visible";
+const BAR_VISIBLE_KEY = "token_display_bar_visible";
 
 const TEXT_SCALE_MIN = 0.6;
 const TEXT_SCALE_MAX = 2.0;
@@ -22,10 +22,10 @@ const WDAY_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 let isPinned = false;
 let textScale = 1;
-let trayProvider = "claude";
 let currentIntervalMin = DEFAULT_INTERVAL_MIN;
 let showSonnet = true;
-let lastAllUsage = null; // 最後に描画した payload (Sonnet トグル反映の再描画に使う)
+let showBar = true;
+let lastAllUsage = null; // 最後に描画した payload (トグル反映の再描画に使う)
 
 function levelOf(util) {
   if (util < 0.5) return "low";
@@ -151,20 +151,11 @@ function renderProvider(providerKey, result) {
   }
 }
 
-function applyTrayBadge() {
-  $$(".provider").forEach((section) => {
-    const badge = section.querySelector("[data-primary-badge]");
-    if (!badge) return;
-    badge.hidden = section.dataset.provider !== trayProvider;
-  });
-}
-
 function render(all) {
   if (!all) return;
   lastAllUsage = all;
   renderProvider("claude", all.claude);
   renderProvider("codex", all.codex);
-  applyTrayBadge();
 
   const dates = [all.claude, all.codex]
     .map((r) => r && r.snapshot && r.snapshot.fetched_at)
@@ -182,12 +173,12 @@ function renderPinned(pinned) {
   isPinned = pinned;
   document.body.dataset.pinned = String(pinned);
   currentWindow.setResizable(true).catch(() => {});
-  const button = $("#pin");
-  if (!button) return;
-  button.textContent = pinned ? "固定中" : "固定";
-  button.title = pinned ? "固定解除" : "固定表示";
-  button.setAttribute("aria-label", button.title);
-  button.setAttribute("aria-pressed", String(pinned));
+  const btn = $("#pin");
+  if (btn) {
+    btn.setAttribute("aria-pressed", String(pinned));
+    btn.title = pinned ? "固定解除" : "固定表示";
+    btn.setAttribute("aria-label", btn.title);
+  }
 }
 
 function clampTextScale(scale) {
@@ -201,8 +192,10 @@ function renderTextScale(scale) {
     "--text-scale",
     textScale.toFixed(2)
   );
-  $("#font-smaller").disabled = textScale <= TEXT_SCALE_MIN + 1e-6;
-  $("#font-larger").disabled = textScale >= TEXT_SCALE_MAX - 1e-6;
+  const smaller = $("#font-smaller");
+  const larger = $("#font-larger");
+  if (smaller) smaller.disabled = textScale <= TEXT_SCALE_MIN + 1e-6;
+  if (larger) larger.disabled = textScale >= TEXT_SCALE_MAX - 1e-6;
   const input = $("#scale-input");
   if (input && document.activeElement !== input) {
     input.value = textScale.toFixed(2);
@@ -232,16 +225,6 @@ function clampIntervalMin(value) {
   return Math.min(INTERVAL_MIN_MAX, Math.max(INTERVAL_MIN_MIN, Math.round(n)));
 }
 
-function loadStoredProvider() {
-  try {
-    const v = localStorage.getItem(PROVIDER_KEY);
-    if (v === "claude" || v === "codex") return v;
-  } catch {
-    // ignore
-  }
-  return null;
-}
-
 function loadStoredIntervalMin() {
   try {
     const raw = localStorage.getItem(INTERVAL_MIN_KEY);
@@ -263,12 +246,15 @@ function loadStoredSonnetVisible() {
   return true; // デフォルトは表示
 }
 
-function saveProvider(provider) {
+function loadStoredBarVisible() {
   try {
-    localStorage.setItem(PROVIDER_KEY, provider);
+    const v = localStorage.getItem(BAR_VISIBLE_KEY);
+    if (v === "0" || v === "false") return false;
+    if (v === "1" || v === "true") return true;
   } catch {
     // ignore
   }
+  return true;
 }
 
 function saveIntervalMin(min) {
@@ -287,15 +273,11 @@ function saveSonnetVisible(visible) {
   }
 }
 
-async function applyTrayProvider(provider) {
-  trayProvider = provider;
-  $("#provider-select").value = provider;
-  saveProvider(provider);
-  applyTrayBadge();
+function saveBarVisible(visible) {
   try {
-    await invoke("set_provider", { provider });
-  } catch (err) {
-    console.error(err);
+    localStorage.setItem(BAR_VISIBLE_KEY, visible ? "1" : "0");
+  } catch {
+    // ignore
   }
 }
 
@@ -318,6 +300,13 @@ function applySonnetVisible(visible) {
   $("#sonnet-toggle").checked = showSonnet;
   saveSonnetVisible(showSonnet);
   rerender();
+}
+
+function applyBarVisible(visible) {
+  showBar = !!visible;
+  $("#bar-toggle").checked = showBar;
+  document.body.dataset.showBar = String(showBar);
+  saveBarVisible(showBar);
 }
 
 async function setPinned(pinned) {
@@ -390,32 +379,28 @@ async function initSettings() {
     // backend が古い場合フォールバック
   }
 
-  const storedProvider = loadStoredProvider();
   const storedIntervalMin = loadStoredIntervalMin();
   showSonnet = loadStoredSonnetVisible();
   $("#sonnet-toggle").checked = showSonnet;
+  showBar = loadStoredBarVisible();
+  $("#bar-toggle").checked = showBar;
+  document.body.dataset.showBar = String(showBar);
 
-  const provider = storedProvider || backendSettings?.provider || "claude";
   const intervalMin =
     storedIntervalMin ??
     (backendSettings?.poll_interval_secs
       ? clampIntervalMin(backendSettings.poll_interval_secs / 60)
       : DEFAULT_INTERVAL_MIN);
 
-  trayProvider = provider;
   currentIntervalMin = intervalMin;
-  $("#provider-select").value = provider;
   $("#interval-input").value = intervalMin;
-  applyTrayBadge();
 
-  // 永続化されている値をバックエンドにも反映 (どちらの源が新しくても揃える)
+  // 永続化されているインターバルをバックエンドにも反映
   if (
     !backendSettings ||
-    backendSettings.provider !== provider ||
     Math.round((backendSettings.poll_interval_secs || 0) / 60) !== intervalMin
   ) {
     try {
-      await invoke("set_provider", { provider });
       await invoke("set_poll_interval", { secs: intervalMin * 60 });
     } catch {
       // ignore — 次回反映される
@@ -424,19 +409,15 @@ async function initSettings() {
 }
 
 $("#refresh").addEventListener("click", refresh);
+$("#settings").addEventListener("click", toggleSettings);
+$("#pin").addEventListener("click", () => {
+  setPinned(!isPinned);
+});
 $("#font-smaller").addEventListener("click", () => {
   setTextScale(textScale - TEXT_SCALE_STEP);
 });
 $("#font-larger").addEventListener("click", () => {
   setTextScale(textScale + TEXT_SCALE_STEP);
-});
-$("#settings").addEventListener("click", toggleSettings);
-$("#pin").addEventListener("click", () => {
-  const currentlyPinned = $("#pin").getAttribute("aria-pressed") === "true";
-  setPinned(!currentlyPinned);
-});
-$("#provider-select").addEventListener("change", (e) => {
-  applyTrayProvider(e.target.value);
 });
 $("#interval-input").addEventListener("change", (e) => {
   applyInterval(e.target.value);
@@ -446,6 +427,9 @@ $("#scale-input").addEventListener("change", (e) => {
 });
 $("#sonnet-toggle").addEventListener("change", (e) => {
   applySonnetVisible(e.target.checked);
+});
+$("#bar-toggle").addEventListener("change", (e) => {
+  applyBarVisible(e.target.checked);
 });
 $(".card__header").addEventListener("mousedown", startPinnedDrag);
 $("#resize-handle").addEventListener("mousedown", startResize);

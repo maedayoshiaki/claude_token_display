@@ -14,8 +14,8 @@ use tauri::{
 use tauri_plugin_positioner::{Position, WindowExt};
 
 use crate::{
-    api::UsageSnapshot, current_poll_interval_secs, current_provider, fetch_all_usage, poll_wake,
-    AllUsage, FetchResult, Provider, MIN_POLL_INTERVAL_SECS,
+    api::UsageSnapshot, current_poll_interval_secs, fetch_all_usage, poll_wake, AllUsage,
+    FetchResult, Provider, MIN_POLL_INTERVAL_SECS,
 };
 
 const INITIAL_DELAY_SECS: u64 = 2;
@@ -226,48 +226,38 @@ fn update_cache_and_emit<R: Runtime>(handle: &AppHandle<R>, cache: &Cache, resul
 }
 
 fn update_tray<R: Runtime>(tray: &tauri::tray::TrayIcon<R>, all: &AllUsage) {
-    let primary_provider = current_provider();
-    let primary = match primary_provider {
-        Provider::Claude => &all.claude,
-        Provider::Codex => &all.codex,
-    };
-    let title = match primary {
-        FetchResult::Ok { snapshot, .. } => format_title(snapshot),
-        FetchResult::RateLimited { .. } => "…".to_string(),
-        FetchResult::Err { .. } => "!".to_string(),
-    };
-    // Windows のシステムトレイは title 非表示。プライマリ選択が「反映されている」と分かるように
-    // tooltip の先頭にプライマリ要約 (例: "Claude 43%") を入れ、その下に両プロバイダの詳細を続ける。
-    let tooltip = format_tooltip_text(primary_provider, primary, all);
+    let title = format_dual_title(all);
+    let tooltip = format_dual_tooltip(all);
     let _ = tray.set_title(Some(title));
     let _ = tray.set_tooltip(Some(tooltip));
 }
 
-fn format_tooltip_text(primary: Provider, primary_result: &FetchResult, all: &AllUsage) -> String {
-    let headline = format!(
-        "{} {}",
-        provider_label(primary),
-        primary_headline(primary_result)
-    );
-    let claude_line = provider_tooltip_line(
-        Provider::Claude,
-        primary == Provider::Claude,
-        &all.claude,
-    );
-    let codex_line =
-        provider_tooltip_line(Provider::Codex, primary == Provider::Codex, &all.codex);
-    format!("{}\n{}\n{}", headline, claude_line, codex_line)
+/// トレイ title は両プロバイダの 5h % を併記: `C 43% · X 30%`。
+/// 片方しかログインしていない場合は失敗側を `!` に。両方失敗で `!`。
+fn format_dual_title(all: &AllUsage) -> String {
+    let c = short_status(&all.claude);
+    let x = short_status(&all.codex);
+    if c == "!" && x == "!" {
+        return "!".to_string();
+    }
+    format!("C {} · X {}", c, x)
 }
 
-fn primary_headline(r: &FetchResult) -> String {
+fn short_status(r: &FetchResult) -> String {
     match r {
         FetchResult::Ok { snapshot, .. } => match snapshot.five_hour.as_ref() {
             Some(b) => format!("{}%", pct(b.utilization)),
             None => "—".to_string(),
         },
-        FetchResult::RateLimited { .. } => "rate limited".to_string(),
-        FetchResult::Err { message, .. } => format!("error: {}", message),
+        FetchResult::RateLimited { .. } => "…".to_string(),
+        FetchResult::Err { .. } => "!".to_string(),
     }
+}
+
+fn format_dual_tooltip(all: &AllUsage) -> String {
+    let claude = provider_tooltip_line(Provider::Claude, &all.claude);
+    let codex = provider_tooltip_line(Provider::Codex, &all.codex);
+    format!("{}\n{}", claude, codex)
 }
 
 fn provider_label(p: Provider) -> &'static str {
@@ -277,27 +267,17 @@ fn provider_label(p: Provider) -> &'static str {
     }
 }
 
-fn provider_tooltip_line(provider: Provider, is_primary: bool, r: &FetchResult) -> String {
-    let marker = if is_primary { "▶" } else { "  " };
+fn provider_tooltip_line(provider: Provider, r: &FetchResult) -> String {
     let name = provider_label(provider);
     match r {
-        FetchResult::Ok { snapshot, .. } => {
-            format!("{} {}: {}", marker, name, format_tooltip(snapshot))
-        }
+        FetchResult::Ok { snapshot, .. } => format!("{}: {}", name, format_tooltip(snapshot)),
         FetchResult::RateLimited {
             retry_after_secs, ..
         } => {
             let s = retry_after_secs.unwrap_or(0);
-            format!("{} {}: rate limited (retry {}s)", marker, name, s)
+            format!("{}: rate limited (retry {}s)", name, s)
         }
-        FetchResult::Err { message, .. } => format!("{} {}: {}", marker, name, message),
-    }
-}
-
-fn format_title(s: &UsageSnapshot) -> String {
-    match s.five_hour.as_ref() {
-        Some(b) => format!("{}%", pct(b.utilization)),
-        None => "—".to_string(),
+        FetchResult::Err { message, .. } => format!("{}: {}", name, message),
     }
 }
 
@@ -534,20 +514,61 @@ mod tests {
     }
 
     #[test]
-    fn title_shows_only_five_hour() {
-        let s = UsageSnapshot {
-            five_hour: Some(b(0.43)),
-            seven_day: Some(b(0.17)),
-            seven_day_sonnet: None,
-            fetched_at: Utc::now(),
+    fn dual_title_combines_both_providers() {
+        let all = AllUsage {
+            claude: FetchResult::Ok {
+                provider: Provider::Claude,
+                snapshot: UsageSnapshot {
+                    five_hour: Some(b(0.43)),
+                    seven_day: Some(b(0.17)),
+                    seven_day_sonnet: None,
+                    fetched_at: Utc::now(),
+                },
+            },
+            codex: FetchResult::Ok {
+                provider: Provider::Codex,
+                snapshot: UsageSnapshot {
+                    five_hour: Some(b(0.30)),
+                    seven_day: Some(b(0.12)),
+                    seven_day_sonnet: None,
+                    fetched_at: Utc::now(),
+                },
+            },
         };
-        assert_eq!(format_title(&s), "43%");
+        assert_eq!(format_dual_title(&all), "C 43% · X 30%");
     }
 
     #[test]
-    fn title_empty() {
-        let s = UsageSnapshot::default();
-        assert_eq!(format_title(&s), "—");
+    fn dual_title_marks_errors_with_bang() {
+        let all = AllUsage {
+            claude: FetchResult::Ok {
+                provider: Provider::Claude,
+                snapshot: UsageSnapshot {
+                    five_hour: Some(b(0.43)),
+                    ..UsageSnapshot::default()
+                },
+            },
+            codex: FetchResult::Err {
+                provider: Provider::Codex,
+                message: "not logged in".into(),
+            },
+        };
+        assert_eq!(format_dual_title(&all), "C 43% · X !");
+    }
+
+    #[test]
+    fn dual_title_collapses_when_both_fail() {
+        let all = AllUsage {
+            claude: FetchResult::Err {
+                provider: Provider::Claude,
+                message: "x".into(),
+            },
+            codex: FetchResult::Err {
+                provider: Provider::Codex,
+                message: "y".into(),
+            },
+        };
+        assert_eq!(format_dual_title(&all), "!");
     }
 
     #[test]

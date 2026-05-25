@@ -9,23 +9,14 @@
   <body>
     <main class="card">
       <header class="card__header">
-        <div class="header-actions">
-          <button id="font-smaller" class="icon-btn" title="文字を小さく" aria-label="文字を小さく">A-</button>
-          <button id="font-larger" class="icon-btn" title="文字を大きく" aria-label="文字を大きく">A+</button>
+        <div class="header-actions header-actions--right">
+          <button id="pin" class="icon-btn icon-btn--pin-glyph" title="固定表示" aria-label="固定表示" aria-pressed="false">📌&#xFE0E;</button>
           <button id="settings" class="icon-btn" title="設定" aria-label="設定" aria-pressed="false">⚙</button>
-          <button id="pin" class="icon-btn icon-btn--pin" title="固定表示" aria-label="固定表示" aria-pressed="false">固定</button>
           <button id="refresh" class="icon-btn" title="Refresh" aria-label="Refresh">⟳</button>
         </div>
       </header>
 
       <section id="settings-panel" class="settings" hidden>
-        <label class="settings__row">
-          <span class="settings__label">トレイ表示</span>
-          <select id="provider-select" class="settings__control" title="メニューバー / システムトレイに % を出すプロバイダ">
-            <option value="claude">Claude</option>
-            <option value="codex">Codex (ChatGPT)</option>
-          </select>
-        </label>
         <label class="settings__row">
           <span class="settings__label">更新間隔</span>
           <span class="settings__inline">
@@ -36,9 +27,15 @@
         <label class="settings__row">
           <span class="settings__label">文字サイズ</span>
           <span class="settings__inline">
+            <button id="font-smaller" class="icon-btn icon-btn--small" title="文字を小さく" aria-label="文字を小さく" type="button">A-</button>
+            <button id="font-larger" class="icon-btn icon-btn--small" title="文字を大きく" aria-label="文字を大きく" type="button">A+</button>
             <input id="scale-input" class="settings__control settings__control--num" type="number" min="0.6" max="2.0" step="0.05" />
             <span class="settings__suffix">×</span>
           </span>
+        </label>
+        <label class="settings__row">
+          <span class="settings__label">バーを表示</span>
+          <input id="bar-toggle" type="checkbox" class="settings__control settings__control--check" />
         </label>
         <label class="settings__row">
           <span class="settings__label">Sonnet 週間を表示</span>
@@ -50,7 +47,6 @@
         <section class="provider" data-provider="claude">
           <div class="provider__head">
             <span class="provider__name">CLAUDE</span>
-            <span class="provider__primary" data-primary-badge hidden>TRAY</span>
           </div>
           <div class="provider__body" data-body>
             <section class="bucket bucket--hero" data-bucket="five_hour">
@@ -75,7 +71,6 @@
         <section class="provider" data-provider="codex">
           <div class="provider__head">
             <span class="provider__name">CODEX</span>
-            <span class="provider__primary" data-primary-badge hidden>TRAY</span>
           </div>
           <div class="provider__body" data-body>
             <section class="bucket bucket--hero" data-bucket="five_hour">
