@@ -17,50 +17,14 @@ macOS 向けの Swift native 実装。Keychain サービス名・API URL・ヘ�
 
 ## 進捗トラッカー
 
-### Phase 0: 設計と骨組み ✅
-- [x] 技術選定 (Tauri 2.x)
-- [x] git init + ローカル user.name/user.email を設定
-- [x] CLAUDE.md / README.md / .gitignore / package.json / Cargo.toml / tauri.conf.json
+進行中タスクと完了履歴は [plans.md](./plans.md) と [status.md](./status.md) で管理する。新しい Phase を立てるときは plans.md にテンプレートを追加し、終わったら status.md に吸収する。
 
-### Phase 0.5: 要件再確認とピボット ✅
-- [x] 初期はローカル JSONL 集計で実装 → 要件は「プラン使用枠の % と リセット時刻」と判明
-- [x] 参考実装の解析: 「Keychain → /api/oauth/usage」が現実的だと確認
-- [x] バックエンドを **OAuth API クライアント方式**に書き換え
+過去 Phase の要約:
 
-### Phase 1: バックエンド ✅
-- [x] `keychain.rs`: `keyring` crate で `service="Claude Code-credentials" / account=$USER` を読み、JSON から `claudeAiOauth.accessToken` を取り出し
-- [x] `api.rs`: `reqwest` で `GET /api/oauth/usage` (Bearer + `anthropic-beta: oauth-2025-04-20`)、レスポンスを `Bucket { utilization, resets_at }` × 3 に整形
-- [x] `lib.rs`: `get_usage` コマンドを公開、エラーは `FetchResult::Err { message }` で返す
-- [x] `tray.rs`: 5分ごとにポーリング、メニューバー title を「43% · 17%」形式に更新
-
-### Phase 2: フロントエンド ✅
-- [x] 3バケットそれぞれを「% 使用済み + リセット時刻 + 横バー」で表示
-- [x] 使用率に応じてバー色を変える (緑/黄/赤)
-- [x] エラー時はエラーメッセージを表示
-- [x] `usage-updated` イベントを listen して 5分おきに自動更新
-
-### Phase 3: ユーザー作業フェーズ（**ユーザー担当**）👈 いまここ
-- [x] Rust toolchain インストール
-- [ ] `npm install`
-- [ ] `npm run tauri dev` で起動確認、初回 keychain アクセス許可ダイアログを「常に許可」で承認
-- [ ] メニューバーに「43% · 17%」のような表示が出ることを確認
-- [ ] アイコンクリックで詳細ポップオーバーが開くことを確認
-- [ ] 初回コミット & GitHub push
-
-### Phase 4: Windows 対応の検証
-- [ ] Windows 機での `cargo build` 確認
-- [ ] Claude Code on Windows が Windows Credential Manager に同じ service 名で保存しているか確認
-- [ ] `keyring` crate が Win Credential Manager を正しく叩けるか動作確認
-- [ ] トレイの title 表示は Windows では tooltip にフォールバック（既に対応済みのつもりだが要確認）
-
-### Phase 5: 配布 ✅(枠組み)
-- [x] `assets/icon-source.png` (1024x1024) を作成
-- [x] `npm run icon` で .icns / .ico / 各サイズ PNG を生成
-- [x] `.github/workflows/release.yml` で tag push → Mac (Apple Silicon + Intel) + Windows をビルドして Release Draft 作成
-- [x] README をエンドユーザー向けに整備
-- [ ] アイコン差し替え（現在はオレンジの丸+リング、要差し替え）
-- [ ] 初回 tag (`v0.1.0`) を切って Actions 動作確認
-- [ ] 署名・公証は未対応（無署名配布、ユーザー側で Gatekeeper / SmartScreen 回避してもらう）
+- Phase 0〜2: 技術選定 (Tauri 2.x) + Keychain / OAuth Usage API クライアント + 3 バケット表示の初期実装 (完了)
+- Phase 3: ユーザー作業 (npm install, 起動確認, 初回 commit/push)
+- Phase 4: Windows 対応 (`.credentials.json` 読み取り、トレイ tooltip フォールバック) (完了)
+- Phase 5: 配布枠組み (icon, GitHub Actions, README) — アイコン差し替えと初回タグは未完了
 
 ## リリース運用
 

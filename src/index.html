@@ -3,50 +3,97 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Claude Usage</title>
+    <title>Usage</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <main class="card">
       <header class="card__header">
-        <h1>Claude プラン使用状況</h1>
         <div class="header-actions">
           <button id="font-smaller" class="icon-btn" title="文字を小さく" aria-label="文字を小さく">A-</button>
           <button id="font-larger" class="icon-btn" title="文字を大きく" aria-label="文字を大きく">A+</button>
+          <button id="settings" class="icon-btn" title="設定" aria-label="設定" aria-pressed="false">⚙</button>
           <button id="pin" class="icon-btn icon-btn--pin" title="固定表示" aria-label="固定表示" aria-pressed="false">固定</button>
           <button id="refresh" class="icon-btn" title="Refresh" aria-label="Refresh">⟳</button>
         </div>
       </header>
 
+      <section id="settings-panel" class="settings" hidden>
+        <label class="settings__row">
+          <span class="settings__label">トレイ表示</span>
+          <select id="provider-select" class="settings__control" title="メニューバー / システムトレイに % を出すプロバイダ">
+            <option value="claude">Claude</option>
+            <option value="codex">Codex (ChatGPT)</option>
+          </select>
+        </label>
+        <label class="settings__row">
+          <span class="settings__label">更新間隔</span>
+          <span class="settings__inline">
+            <input id="interval-input" class="settings__control settings__control--num" type="number" min="1" max="60" step="1" />
+            <span class="settings__suffix">分</span>
+          </span>
+        </label>
+        <label class="settings__row">
+          <span class="settings__label">文字サイズ</span>
+          <span class="settings__inline">
+            <input id="scale-input" class="settings__control settings__control--num" type="number" min="0.6" max="2.0" step="0.05" />
+            <span class="settings__suffix">×</span>
+          </span>
+        </label>
+        <label class="settings__row">
+          <span class="settings__label">Sonnet 週間を表示</span>
+          <input id="sonnet-toggle" type="checkbox" class="settings__control settings__control--check" />
+        </label>
+      </section>
+
       <div id="content">
-        <section class="bucket" id="bucket-5h">
-          <div class="bucket__title">現在のセッション (5h)</div>
-          <div class="bucket__row">
-            <div class="bucket__pct" data-pct>—</div>
-            <div class="bucket__resets" data-resets>—</div>
+        <section class="provider" data-provider="claude">
+          <div class="provider__head">
+            <span class="provider__name">CLAUDE</span>
+            <span class="provider__primary" data-primary-badge hidden>TRAY</span>
           </div>
-          <div class="bar"><div class="bar__fill" data-fill></div></div>
+          <div class="provider__body" data-body>
+            <section class="bucket bucket--hero" data-bucket="five_hour">
+              <div class="bucket__title">Session (5h)</div>
+              <div class="bucket__row">
+                <div class="bucket__pct" data-pct>—</div>
+                <div class="bucket__resets" data-resets>—</div>
+              </div>
+              <div class="bar"><div class="bar__fill" data-fill></div></div>
+            </section>
+            <section class="bucket bucket--compact" data-bucket="weekly-combined">
+              <span class="bucket__name">Weekly</span>
+              <span class="bucket__pcts">
+                <span class="bucket__pct bucket__pct--compact" data-pct-weekly>—%</span><span class="bucket__sonnet" data-sonnet-wrap> · Sonnet <span data-pct-sonnet>—%</span></span>
+              </span>
+              <span class="bucket__resets bucket__resets--compact" data-resets>—</span>
+            </section>
+          </div>
+          <div class="provider__error" data-error hidden></div>
         </section>
 
-        <section class="bucket" id="bucket-7d">
-          <div class="bucket__title">週間制限</div>
-          <div class="bucket__row">
-            <div class="bucket__pct" data-pct>—</div>
-            <div class="bucket__resets" data-resets>—</div>
+        <section class="provider" data-provider="codex">
+          <div class="provider__head">
+            <span class="provider__name">CODEX</span>
+            <span class="provider__primary" data-primary-badge hidden>TRAY</span>
           </div>
-          <div class="bar"><div class="bar__fill" data-fill></div></div>
-        </section>
-
-        <section class="bucket" id="bucket-7d-sonnet">
-          <div class="bucket__title">週間制限 (Sonnet)</div>
-          <div class="bucket__row">
-            <div class="bucket__pct" data-pct>—</div>
-            <div class="bucket__resets" data-resets>—</div>
+          <div class="provider__body" data-body>
+            <section class="bucket bucket--hero" data-bucket="five_hour">
+              <div class="bucket__title">Session (5h)</div>
+              <div class="bucket__row">
+                <div class="bucket__pct" data-pct>—</div>
+                <div class="bucket__resets" data-resets>—</div>
+              </div>
+              <div class="bar"><div class="bar__fill" data-fill></div></div>
+            </section>
+            <section class="bucket bucket--compact" data-bucket="weekly">
+              <span class="bucket__name">Weekly</span>
+              <span class="bucket__pct bucket__pct--compact" data-pct-weekly>—%</span>
+              <span class="bucket__resets bucket__resets--compact" data-resets>—</span>
+            </section>
           </div>
-          <div class="bar"><div class="bar__fill" data-fill></div></div>
+          <div class="provider__error" data-error hidden></div>
         </section>
-
-        <div id="error" class="error" hidden></div>
       </div>
 
       <footer class="card__footer">

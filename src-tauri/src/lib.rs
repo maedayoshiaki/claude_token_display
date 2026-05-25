@@ -1,13 +1,16 @@
 mod api;
+mod codex;
 mod keychain;
 #[cfg(target_os = "macos")]
 mod macos_panel;
 mod tray;
 
 use api::UsageSnapshot;
-use serde::Serialize;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicU8, Ordering};
+use std::sync::{Arc, OnceLock};
 use tauri::Manager;
+use tokio::sync::Notify;
 
 /// popover が show() された最後の時刻 (epoch ms)。表示直後の
 /// Focused(false) によるオートクローズを抑制するための grace 用。
@@ -18,17 +21,107 @@ const RESIZE_AUTO_HIDE_SUPPRESSION_MS: i64 = 4_000;
 static POPOVER_PINNED: AtomicBool = AtomicBool::new(false);
 static POPOVER_AUTO_HIDE_SUPPRESSED_UNTIL_MS: AtomicI64 = AtomicI64::new(0);
 
+/// 現在のプロバイダ。`Provider::as_u8` で AtomicU8 に格納。
+static CURRENT_PROVIDER: AtomicU8 = AtomicU8::new(Provider::CLAUDE_U8);
+
+/// ポーラの待ち秒数 (ユーザ設定)。`tray.rs` のループが各イテレーションでこの値を読む。
+pub const MIN_POLL_INTERVAL_SECS: u64 = 60;
+pub const MAX_POLL_INTERVAL_SECS: u64 = 3_600;
+pub const DEFAULT_POLL_INTERVAL_SECS: u64 = 300;
+static POLL_INTERVAL_SECS: AtomicU64 = AtomicU64::new(DEFAULT_POLL_INTERVAL_SECS);
+
+/// poll 間隔変更 / プロバイダ変更時にポーラを起こすための notifier。
+static POLL_WAKE: OnceLock<Arc<Notify>> = OnceLock::new();
+
+fn poll_wake_internal() -> &'static Arc<Notify> {
+    POLL_WAKE.get_or_init(|| Arc::new(Notify::new()))
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Provider {
+    Claude,
+    Codex,
+}
+
+impl Provider {
+    const CLAUDE_U8: u8 = 0;
+    const CODEX_U8: u8 = 1;
+
+    fn as_u8(self) -> u8 {
+        match self {
+            Provider::Claude => Self::CLAUDE_U8,
+            Provider::Codex => Self::CODEX_U8,
+        }
+    }
+
+    fn from_u8(value: u8) -> Self {
+        match value {
+            Self::CODEX_U8 => Provider::Codex,
+            _ => Provider::Claude,
+        }
+    }
+}
+
 #[derive(Serialize, Clone, Debug)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum FetchResult {
-    Ok(UsageSnapshot),
-    RateLimited { retry_after_secs: Option<u64> },
-    Err { message: String },
+    Ok {
+        provider: Provider,
+        snapshot: UsageSnapshot,
+    },
+    RateLimited {
+        provider: Provider,
+        retry_after_secs: Option<u64>,
+    },
+    Err {
+        provider: Provider,
+        message: String,
+    },
+}
+
+impl FetchResult {
+    pub fn provider(&self) -> Provider {
+        match self {
+            FetchResult::Ok { provider, .. }
+            | FetchResult::RateLimited { provider, .. }
+            | FetchResult::Err { provider, .. } => *provider,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Settings {
+    /// トレイのタイトルに表示するプロバイダ。ポップオーバーは常に両方を表示する。
+    pub provider: Provider,
+    pub poll_interval_secs: u64,
+}
+
+/// 全プロバイダの取得結果をまとめたもの。ポップオーバーはこの構造をそのまま受け取って描画する。
+#[derive(Serialize, Clone, Debug)]
+pub struct AllUsage {
+    pub claude: FetchResult,
+    pub codex: FetchResult,
 }
 
 #[tauri::command]
-async fn get_usage() -> FetchResult {
-    fetch_usage_inner().await
+async fn get_usage() -> AllUsage {
+    fetch_all_usage().await
+}
+
+/// 即時リフレッシュ要求。ポーラを叩き起こしてフェッチをトリガし、
+/// 通常経路 (tray 更新 + cache 書き換え + usage-updated emit) で全体に反映する。
+#[tauri::command]
+fn refresh_now() {
+    poll_wake_internal().notify_one();
+}
+
+pub async fn fetch_all_usage() -> AllUsage {
+    let (claude, codex) = tokio::join!(
+        fetch_usage_inner(Provider::Claude),
+        fetch_usage_inner(Provider::Codex)
+    );
+    AllUsage { claude, codex }
 }
 
 #[tauri::command]
@@ -47,12 +140,47 @@ fn suppress_popover_auto_hide() {
     suppress_popover_auto_hide_for(RESIZE_AUTO_HIDE_SUPPRESSION_MS);
 }
 
+#[tauri::command]
+fn get_settings() -> Settings {
+    Settings {
+        provider: current_provider(),
+        poll_interval_secs: POLL_INTERVAL_SECS.load(Ordering::SeqCst),
+    }
+}
+
+#[tauri::command]
+fn set_provider(provider: Provider) -> Settings {
+    CURRENT_PROVIDER.store(provider.as_u8(), Ordering::SeqCst);
+    poll_wake_internal().notify_one();
+    get_settings()
+}
+
+#[tauri::command]
+fn set_poll_interval(secs: u64) -> Settings {
+    let clamped = secs.clamp(MIN_POLL_INTERVAL_SECS, MAX_POLL_INTERVAL_SECS);
+    POLL_INTERVAL_SECS.store(clamped, Ordering::SeqCst);
+    poll_wake_internal().notify_one();
+    get_settings()
+}
+
 pub fn is_popover_pinned() -> bool {
     POPOVER_PINNED.load(Ordering::SeqCst)
 }
 
 pub fn is_popover_auto_hide_suppressed() -> bool {
     now_ms() < POPOVER_AUTO_HIDE_SUPPRESSED_UNTIL_MS.load(Ordering::SeqCst)
+}
+
+pub fn current_provider() -> Provider {
+    Provider::from_u8(CURRENT_PROVIDER.load(Ordering::SeqCst))
+}
+
+pub fn current_poll_interval_secs() -> u64 {
+    POLL_INTERVAL_SECS.load(Ordering::SeqCst)
+}
+
+pub fn poll_wake() -> Arc<Notify> {
+    poll_wake_internal().clone()
 }
 
 fn suppress_popover_auto_hide_for(duration_ms: i64) {
@@ -75,21 +203,60 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-pub async fn fetch_usage_inner() -> FetchResult {
+pub async fn fetch_usage_inner(provider: Provider) -> FetchResult {
+    match provider {
+        Provider::Claude => fetch_claude().await,
+        Provider::Codex => fetch_codex().await,
+    }
+}
+
+async fn fetch_claude() -> FetchResult {
     let token = match keychain::read_access_token() {
         Ok(t) => t,
         Err(e) => {
             return FetchResult::Err {
+                provider: Provider::Claude,
                 message: e.to_string(),
             }
         }
     };
     match api::fetch_usage(&token).await {
-        Ok(snapshot) => FetchResult::Ok(snapshot),
-        Err(api::ApiError::RateLimited { retry_after_secs }) => {
-            FetchResult::RateLimited { retry_after_secs }
-        }
+        Ok(snapshot) => FetchResult::Ok {
+            provider: Provider::Claude,
+            snapshot,
+        },
+        Err(api::ApiError::RateLimited { retry_after_secs }) => FetchResult::RateLimited {
+            provider: Provider::Claude,
+            retry_after_secs,
+        },
         Err(e) => FetchResult::Err {
+            provider: Provider::Claude,
+            message: e.to_string(),
+        },
+    }
+}
+
+async fn fetch_codex() -> FetchResult {
+    let creds = match codex::read_credentials() {
+        Ok(c) => c,
+        Err(e) => {
+            return FetchResult::Err {
+                provider: Provider::Codex,
+                message: e.to_string(),
+            }
+        }
+    };
+    match codex::fetch_usage(&creds).await {
+        Ok(snapshot) => FetchResult::Ok {
+            provider: Provider::Codex,
+            snapshot,
+        },
+        Err(api::ApiError::RateLimited { retry_after_secs }) => FetchResult::RateLimited {
+            provider: Provider::Codex,
+            retry_after_secs,
+        },
+        Err(e) => FetchResult::Err {
+            provider: Provider::Codex,
             message: e.to_string(),
         },
     }
@@ -101,9 +268,13 @@ pub fn run() {
         .plugin(tauri_plugin_positioner::init())
         .invoke_handler(tauri::generate_handler![
             get_usage,
+            refresh_now,
             get_popover_pinned,
             set_popover_pinned,
-            suppress_popover_auto_hide
+            suppress_popover_auto_hide,
+            get_settings,
+            set_provider,
+            set_poll_interval,
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -169,5 +340,13 @@ mod tests {
     #[test]
     fn focus_loss_is_not_ignored_after_grace_and_suppression() {
         assert!(!focus_loss_should_be_ignored(false, 1_000, 1_500, 2_000));
+    }
+
+    #[test]
+    fn provider_roundtrips_via_u8() {
+        assert_eq!(Provider::from_u8(Provider::Claude.as_u8()), Provider::Claude);
+        assert_eq!(Provider::from_u8(Provider::Codex.as_u8()), Provider::Codex);
+        // unknown values fall back to Claude
+        assert_eq!(Provider::from_u8(42), Provider::Claude);
     }
 }

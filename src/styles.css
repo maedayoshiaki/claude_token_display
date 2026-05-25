@@ -49,35 +49,22 @@ body {
   min-height: 0;
   background: var(--bg);
   border-radius: 0;
-  padding: 16px;
+  padding: 14px;
   overflow: hidden;
 }
 
 .card__header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 14px;
+  gap: 6px;
+  margin-bottom: 6px;
   user-select: none;
 }
 
 body[data-pinned="true"] .card__header {
   cursor: move;
-}
-
-.card__header h1 {
-  flex: 1 1 96px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: calc(12px * var(--text-scale));
-  font-weight: 600;
-  color: var(--fg-dim);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .header-actions {
@@ -120,8 +107,60 @@ body[data-pinned="true"] .card__header {
   color: var(--fg-dim);
 }
 
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: var(--bar-bg);
+  border-radius: 8px;
+}
+.settings[hidden] {
+  display: none;
+}
+.settings__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: calc(12px * var(--text-scale));
+  color: var(--fg-dim);
+}
+.settings__label {
+  flex: 0 0 auto;
+}
+.settings__control {
+  flex: 1 1 auto;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--divider);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: calc(12px * var(--text-scale));
+  min-width: 0;
+}
+.settings__control--num {
+  width: calc(60px * var(--text-scale));
+  flex: 0 0 auto;
+  text-align: right;
+}
+.settings__control--check {
+  width: auto;
+  flex: 0 0 auto;
+}
+.settings__inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.settings__suffix {
+  font-size: calc(11px * var(--text-scale));
+  color: var(--fg-dim);
+}
+
 .bucket {
-  padding: 10px 0;
+  padding: 8px 0;
   border-top: 1px solid var(--divider);
 }
 .bucket:first-of-type {
@@ -131,13 +170,16 @@ body[data-pinned="true"] .card__header {
 .bucket[hidden] {
   display: none;
 }
+.bucket--hero {
+  padding-bottom: 2px;
+}
 
 .bucket__title {
   font-size: calc(11px * var(--text-scale));
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--fg-dim);
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .bucket__row {
@@ -160,6 +202,59 @@ body[data-pinned="true"] .card__header {
   font-size: calc(11px * var(--text-scale));
   color: var(--fg-dim);
   text-align: right;
+}
+
+.bucket--compact {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 0 0 2px;
+  border-top: none;
+  font-size: calc(10px * var(--text-scale));
+  color: var(--fg-dim);
+  line-height: 1.2;
+}
+.bucket--compact .bucket__name {
+  flex: 0 0 auto;
+  font-size: calc(10px * var(--text-scale));
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--fg-dim);
+  text-transform: none;
+  min-width: 0;
+}
+.bucket__pct--compact {
+  font-size: calc(11px * var(--text-scale));
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  flex: 0 0 auto;
+}
+.bucket__pcts {
+  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bucket__sonnet {
+  color: var(--fg-dim);
+  font-size: calc(10px * var(--text-scale));
+  font-variant-numeric: tabular-nums;
+}
+.bucket__sonnet[hidden] {
+  display: none;
+}
+.bucket__resets--compact {
+  flex: 1 1 auto;
+  font-size: calc(10px * var(--text-scale));
+  color: var(--fg-dim);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .bar {
@@ -188,12 +283,70 @@ body[data-pinned="true"] .card__header {
 #content {
   flex: 1;
   min-height: 0;
-  overflow: visible;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none; /* Firefox */
+}
+#content::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none; /* Chromium / WebView2 */
+}
+
+.provider {
+  padding-bottom: 6px;
+}
+.provider + .provider {
+  margin-top: 6px;
+  border-top: 1px solid var(--divider);
+  padding-top: 8px;
+}
+.provider__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 0;
+}
+.provider__name {
+  font-size: calc(10px * var(--text-scale));
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+}
+.provider__primary {
+  font-size: calc(9px * var(--text-scale));
+  letter-spacing: 0.06em;
+  color: var(--fg-dim);
+  background: var(--divider);
+  padding: 1px 6px;
+  border-radius: 8px;
+  text-transform: uppercase;
+}
+.provider__primary[hidden] {
+  display: none;
+}
+.provider__error {
+  margin: 4px 0;
+  padding: 6px 8px;
+  background: rgba(255, 69, 58, 0.10);
+  border: 1px solid rgba(255, 69, 58, 0.25);
+  border-radius: 6px;
+  font-size: calc(11px * var(--text-scale));
+  color: var(--bar-fill-high);
+  line-height: 1.4;
+}
+.provider__error[hidden] {
+  display: none;
+}
+.provider__body[hidden] {
+  display: none;
 }
 
 .error {
-  margin-top: 10px;
-  padding: 10px;
+  margin-top: 8px;
+  padding: 8px;
   background: rgba(255, 69, 58, 0.12);
   border: 1px solid rgba(255, 69, 58, 0.3);
   border-radius: 8px;
@@ -203,7 +356,7 @@ body[data-pinned="true"] .card__header {
 }
 
 .card__footer {
-  margin-top: 12px;
+  margin-top: 8px;
   flex: 0 0 auto;
   font-size: calc(10px * var(--text-scale));
   color: var(--fg-dim);
@@ -241,19 +394,19 @@ body[data-pinned="true"] .card__header {
   height: 7px;
 }
 
-@media (max-width: 260px) {
+@media (max-width: 240px) {
   body {
     padding: 0;
   }
 
   .card {
-    padding: 12px;
+    padding: 10px;
   }
 
   .card__header {
     align-items: flex-start;
-    gap: 6px;
-    margin-bottom: 10px;
+    gap: 4px;
+    margin-bottom: 8px;
   }
 
   .card__header h1 {
@@ -265,18 +418,30 @@ body[data-pinned="true"] .card__header {
   }
 
   .icon-btn {
-    padding: 0 4px;
+    padding: 0 3px;
   }
 
-  .bucket {
-    padding: 8px 0;
+  /* ヒーロー側だけ縦余白を詰める。 .bucket--compact (padding: 0 0 2px) を巻き込まないよう :not() で除外 */
+  .bucket:not(.bucket--compact) {
+    padding: 6px 0;
   }
 
-  .bucket__pct {
-    font-size: calc(20px * var(--text-scale));
+  /* ヒーロー側だけ縮める。 .bucket__pct--compact (11px) を巻き込まないよう :not() で除外 */
+  .bucket__pct:not(.bucket__pct--compact) {
+    font-size: calc(18px * var(--text-scale));
   }
 
-  .bucket__resets {
+  .bucket--hero .bucket__resets {
     text-align: left;
+  }
+
+  /* ナロー時も weekly 行は 1 行のまま (溢れたら reset 側を省略) */
+  .bucket--compact {
+    flex-wrap: nowrap;
+    gap: 4px;
+    min-width: 0;
+  }
+  .bucket--compact > * {
+    min-width: 0;
   }
 }

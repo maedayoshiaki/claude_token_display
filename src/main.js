@@ -4,12 +4,28 @@ const { listen } = window.__TAURI__.event;
 const currentWindow = window.__TAURI__.window.getCurrentWindow();
 
 const $ = (sel) => document.querySelector(sel);
+const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+
 const TEXT_SCALE_KEY = "token_display_text_scale";
-const TEXT_SCALE_MIN = 0.75;
-const TEXT_SCALE_MAX = 1.3;
-const TEXT_SCALE_STEP = 0.1;
+const PROVIDER_KEY = "token_display_provider";
+const INTERVAL_MIN_KEY = "token_display_interval_min";
+const SONNET_VISIBLE_KEY = "token_display_sonnet_visible";
+
+const TEXT_SCALE_MIN = 0.6;
+const TEXT_SCALE_MAX = 2.0;
+const TEXT_SCALE_STEP = 0.05;
+const INTERVAL_MIN_MIN = 1;
+const INTERVAL_MIN_MAX = 60;
+const DEFAULT_INTERVAL_MIN = 5;
+const PROVIDER_LABELS = { claude: "Claude", codex: "Codex" };
+const WDAY_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
 let isPinned = false;
 let textScale = 1;
+let trayProvider = "claude";
+let currentIntervalMin = DEFAULT_INTERVAL_MIN;
+let showSonnet = true;
+let lastAllUsage = null; // 最後に描画した payload (Sonnet トグル反映の再描画に使う)
 
 function levelOf(util) {
   if (util < 0.5) return "low";
@@ -17,96 +33,149 @@ function levelOf(util) {
   return "high";
 }
 
-function formatResetIn(isoString) {
+function pctOf(bucket) {
+  if (!bucket) return null;
+  const raw = Number(bucket.utilization);
+  return Number.isFinite(raw) ? Math.round(raw * 100) : 0;
+}
+
+function formatResetShort(isoString) {
   if (!isoString) return "—";
   const resets = new Date(isoString);
   const now = new Date();
   const diffMs = resets - now;
-  if (diffMs <= 0) {
-    return "リセット中";
-  }
+  if (diffMs <= 0) return "now";
   const mins = Math.floor(diffMs / 60000);
+  if (mins < 60) return `in ${mins}m`;
   const hours = Math.floor(mins / 60);
-  const remainMins = mins % 60;
-
-  // 24h 以内は「X時間Y分後」、それ以上は曜日と時刻
   if (mins < 60 * 24) {
-    if (hours === 0) return `${remainMins}分後にリセット`;
-    return `${hours}時間${remainMins}分後にリセット`;
+    const rem = mins % 60;
+    return rem === 0 ? `in ${hours}h` : `in ${hours}h${rem}m`;
   }
-  const wday = ["日", "月", "火", "水", "木", "金", "土"][resets.getDay()];
+  const wday = WDAY_EN[resets.getDay()];
   const hh = String(resets.getHours()).padStart(2, "0");
   const mm = String(resets.getMinutes()).padStart(2, "0");
-  return `${hh}:${mm} (${wday})にリセット`;
+  return `${wday} ${hh}:${mm}`;
 }
 
-function renderMissingBucket(selector, hideWhenMissing) {
-  const section = $(selector);
-  if (!section) return;
-  if (hideWhenMissing) {
-    section.hidden = true;
-    return;
-  }
-
-  section.hidden = false;
-  section.querySelector("[data-pct]").textContent = "—";
-  section.querySelector("[data-resets]").textContent = "取得待ち";
-  const fill = section.querySelector("[data-fill]");
-  fill.style.width = "0%";
-  fill.dataset.level = "low";
-}
-
-function renderBucket(selector, bucket, { hideWhenMissing = true } = {}) {
-  const section = $(selector);
+function renderHeroBucket(section, bucket) {
   if (!section) return;
   if (!bucket) {
-    renderMissingBucket(selector, hideWhenMissing);
+    section.querySelector("[data-pct]").textContent = "—";
+    section.querySelector("[data-resets]").textContent = "waiting…";
+    const fill = section.querySelector("[data-fill]");
+    fill.style.width = "0%";
+    fill.dataset.level = "low";
     return;
   }
-
-  section.hidden = false;
-  const rawUtil = Number(bucket.utilization);
-  const util = Number.isFinite(rawUtil) ? rawUtil : 0;
-  const pct = Math.round(util * 100);
-  section.querySelector("[data-pct]").textContent = `${pct}% 使用済み`;
-  section.querySelector("[data-resets]").textContent = formatResetIn(bucket.resets_at);
+  const pct = pctOf(bucket);
+  section.querySelector("[data-pct]").textContent = `${pct}%`;
+  section.querySelector("[data-resets]").textContent = formatResetShort(
+    bucket.resets_at
+  );
   const fill = section.querySelector("[data-fill]");
   fill.style.width = `${Math.max(0, Math.min(100, pct))}%`;
-  fill.dataset.level = levelOf(util);
+  fill.dataset.level = levelOf(Number(bucket.utilization) || 0);
 }
 
-function showError(message) {
-  const el = $("#error");
-  el.hidden = false;
-  el.textContent = message;
+function renderClaudeWeekly(section, weekly, sonnet) {
+  if (!section) return;
+  section.hidden = false;
+  const weeklyPct = section.querySelector("[data-pct-weekly]");
+  const sonnetWrap = section.querySelector("[data-sonnet-wrap]");
+  const sonnetPct = section.querySelector("[data-pct-sonnet]");
+  const resetsEl = section.querySelector("[data-resets]");
+
+  weeklyPct.textContent = weekly ? `${pctOf(weekly)}%` : "—%";
+
+  if (sonnetWrap) {
+    const showIt = showSonnet && !!sonnet;
+    sonnetWrap.hidden = !showIt;
+    if (showIt && sonnetPct) {
+      sonnetPct.textContent = `${pctOf(sonnet)}%`;
+    }
+  }
+
+  const resetIso =
+    (weekly && weekly.resets_at) || (sonnet && sonnet.resets_at) || null;
+  resetsEl.textContent = formatResetShort(resetIso);
 }
 
-function clearError() {
-  const el = $("#error");
-  el.hidden = true;
-  el.textContent = "";
+function renderCodexWeekly(section, weekly) {
+  if (!section) return;
+  section.hidden = false;
+  const weeklyPct = section.querySelector("[data-pct-weekly]");
+  const resetsEl = section.querySelector("[data-resets]");
+  weeklyPct.textContent = weekly ? `${pctOf(weekly)}%` : "—%";
+  resetsEl.textContent = formatResetShort(weekly ? weekly.resets_at : null);
 }
 
-function render(result) {
-  if (!result) return;
-  if (result.kind === "err") {
-    showError(result.message || "unknown error");
+function renderProvider(providerKey, result) {
+  const section = document.querySelector(
+    `.provider[data-provider="${providerKey}"]`
+  );
+  if (!section) return;
+  const body = section.querySelector("[data-body]");
+  const errorEl = section.querySelector("[data-error]");
+
+  if (!result || result.kind === "err") {
+    body.hidden = true;
+    errorEl.hidden = false;
+    errorEl.textContent =
+      (result && result.message) || `${PROVIDER_LABELS[providerKey]} failed`;
     return;
   }
   if (result.kind === "rate_limited") {
+    body.hidden = true;
+    errorEl.hidden = false;
     const s = result.retry_after_secs;
-    showError(
-      `Rate limited by Anthropic API. ${s ? `Retrying in ${s}s.` : "Retrying shortly."}`
-    );
+    errorEl.textContent = `Rate limited. ${
+      s ? `Retry in ${s}s.` : "Retrying shortly."
+    }`;
     return;
   }
-  clearError();
-  renderBucket("#bucket-5h", result.five_hour, { hideWhenMissing: false });
-  renderBucket("#bucket-7d", result.seven_day);
-  renderBucket("#bucket-7d-sonnet", result.seven_day_sonnet);
+  errorEl.hidden = true;
+  body.hidden = false;
+  const snapshot = result.snapshot || {};
+  const heroSection = section.querySelector('[data-bucket="five_hour"]');
+  renderHeroBucket(heroSection, snapshot.five_hour);
 
-  const fetchedAt = result.fetched_at ? new Date(result.fetched_at) : new Date();
-  $("#updated-at").textContent = "updated " + fetchedAt.toLocaleTimeString();
+  if (providerKey === "claude") {
+    const weeklySection = section.querySelector(
+      '[data-bucket="weekly-combined"]'
+    );
+    renderClaudeWeekly(weeklySection, snapshot.seven_day, snapshot.seven_day_sonnet);
+  } else {
+    const weeklySection = section.querySelector('[data-bucket="weekly"]');
+    renderCodexWeekly(weeklySection, snapshot.seven_day);
+  }
+}
+
+function applyTrayBadge() {
+  $$(".provider").forEach((section) => {
+    const badge = section.querySelector("[data-primary-badge]");
+    if (!badge) return;
+    badge.hidden = section.dataset.provider !== trayProvider;
+  });
+}
+
+function render(all) {
+  if (!all) return;
+  lastAllUsage = all;
+  renderProvider("claude", all.claude);
+  renderProvider("codex", all.codex);
+  applyTrayBadge();
+
+  const dates = [all.claude, all.codex]
+    .map((r) => r && r.snapshot && r.snapshot.fetched_at)
+    .filter(Boolean)
+    .map((s) => new Date(s));
+  const latest = dates.length ? new Date(Math.max(...dates)) : new Date();
+  $("#updated-at").textContent = "updated " + latest.toLocaleTimeString();
+}
+
+function rerender() {
+  if (lastAllUsage) render(lastAllUsage);
 }
 
 function renderPinned(pinned) {
@@ -128,9 +197,16 @@ function clampTextScale(scale) {
 
 function renderTextScale(scale) {
   textScale = clampTextScale(scale);
-  document.documentElement.style.setProperty("--text-scale", textScale.toFixed(2));
-  $("#font-smaller").disabled = textScale <= TEXT_SCALE_MIN;
-  $("#font-larger").disabled = textScale >= TEXT_SCALE_MAX;
+  document.documentElement.style.setProperty(
+    "--text-scale",
+    textScale.toFixed(2)
+  );
+  $("#font-smaller").disabled = textScale <= TEXT_SCALE_MIN + 1e-6;
+  $("#font-larger").disabled = textScale >= TEXT_SCALE_MAX - 1e-6;
+  const input = $("#scale-input");
+  if (input && document.activeElement !== input) {
+    input.value = textScale.toFixed(2);
+  }
 }
 
 function setTextScale(scale) {
@@ -150,13 +226,107 @@ function initTextScale() {
   }
 }
 
+function clampIntervalMin(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_INTERVAL_MIN;
+  return Math.min(INTERVAL_MIN_MAX, Math.max(INTERVAL_MIN_MIN, Math.round(n)));
+}
+
+function loadStoredProvider() {
+  try {
+    const v = localStorage.getItem(PROVIDER_KEY);
+    if (v === "claude" || v === "codex") return v;
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function loadStoredIntervalMin() {
+  try {
+    const raw = localStorage.getItem(INTERVAL_MIN_KEY);
+    if (raw === null) return null;
+    return clampIntervalMin(raw);
+  } catch {
+    return null;
+  }
+}
+
+function loadStoredSonnetVisible() {
+  try {
+    const v = localStorage.getItem(SONNET_VISIBLE_KEY);
+    if (v === "0" || v === "false") return false;
+    if (v === "1" || v === "true") return true;
+  } catch {
+    // ignore
+  }
+  return true; // デフォルトは表示
+}
+
+function saveProvider(provider) {
+  try {
+    localStorage.setItem(PROVIDER_KEY, provider);
+  } catch {
+    // ignore
+  }
+}
+
+function saveIntervalMin(min) {
+  try {
+    localStorage.setItem(INTERVAL_MIN_KEY, String(min));
+  } catch {
+    // ignore
+  }
+}
+
+function saveSonnetVisible(visible) {
+  try {
+    localStorage.setItem(SONNET_VISIBLE_KEY, visible ? "1" : "0");
+  } catch {
+    // ignore
+  }
+}
+
+async function applyTrayProvider(provider) {
+  trayProvider = provider;
+  $("#provider-select").value = provider;
+  saveProvider(provider);
+  applyTrayBadge();
+  try {
+    await invoke("set_provider", { provider });
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function applyInterval(min) {
+  currentIntervalMin = clampIntervalMin(min);
+  const input = $("#interval-input");
+  if (input && document.activeElement !== input) {
+    input.value = currentIntervalMin;
+  }
+  saveIntervalMin(currentIntervalMin);
+  try {
+    await invoke("set_poll_interval", { secs: currentIntervalMin * 60 });
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function applySonnetVisible(visible) {
+  showSonnet = !!visible;
+  $("#sonnet-toggle").checked = showSonnet;
+  saveSonnetVisible(showSonnet);
+  rerender();
+}
+
 async function setPinned(pinned) {
   try {
     const current = await invoke("set_popover_pinned", { pinned });
     renderPinned(current);
   } catch (err) {
     await initPinned();
-    showError(String(err));
+    console.error(err);
   }
 }
 
@@ -169,12 +339,28 @@ async function initPinned() {
 }
 
 async function refresh() {
+  const btn = $("#refresh");
+  if (btn) btn.disabled = true;
   try {
-    const result = await invoke("get_usage");
-    render(result);
+    // バックエンドのポーラを叩き起こす。フェッチ完了時に
+    // usage-updated が emit され、popover / tray / cache が同時に更新される。
+    await invoke("refresh_now");
   } catch (err) {
-    showError(String(err));
+    console.error(err);
+  } finally {
+    setTimeout(() => {
+      if (btn) btn.disabled = false;
+    }, 1500);
   }
+}
+
+function toggleSettings() {
+  const panel = $("#settings-panel");
+  const btn = $("#settings");
+  if (!panel || !btn) return;
+  const open = panel.hidden;
+  panel.hidden = !open;
+  btn.setAttribute("aria-pressed", String(open));
 }
 
 function startPinnedDrag(event) {
@@ -196,6 +382,47 @@ async function startResize(event) {
   currentWindow.startResizeDragging("SouthEast").catch(() => {});
 }
 
+async function initSettings() {
+  let backendSettings = null;
+  try {
+    backendSettings = await invoke("get_settings");
+  } catch {
+    // backend が古い場合フォールバック
+  }
+
+  const storedProvider = loadStoredProvider();
+  const storedIntervalMin = loadStoredIntervalMin();
+  showSonnet = loadStoredSonnetVisible();
+  $("#sonnet-toggle").checked = showSonnet;
+
+  const provider = storedProvider || backendSettings?.provider || "claude";
+  const intervalMin =
+    storedIntervalMin ??
+    (backendSettings?.poll_interval_secs
+      ? clampIntervalMin(backendSettings.poll_interval_secs / 60)
+      : DEFAULT_INTERVAL_MIN);
+
+  trayProvider = provider;
+  currentIntervalMin = intervalMin;
+  $("#provider-select").value = provider;
+  $("#interval-input").value = intervalMin;
+  applyTrayBadge();
+
+  // 永続化されている値をバックエンドにも反映 (どちらの源が新しくても揃える)
+  if (
+    !backendSettings ||
+    backendSettings.provider !== provider ||
+    Math.round((backendSettings.poll_interval_secs || 0) / 60) !== intervalMin
+  ) {
+    try {
+      await invoke("set_provider", { provider });
+      await invoke("set_poll_interval", { secs: intervalMin * 60 });
+    } catch {
+      // ignore — 次回反映される
+    }
+  }
+}
+
 $("#refresh").addEventListener("click", refresh);
 $("#font-smaller").addEventListener("click", () => {
   setTextScale(textScale - TEXT_SCALE_STEP);
@@ -203,9 +430,22 @@ $("#font-smaller").addEventListener("click", () => {
 $("#font-larger").addEventListener("click", () => {
   setTextScale(textScale + TEXT_SCALE_STEP);
 });
+$("#settings").addEventListener("click", toggleSettings);
 $("#pin").addEventListener("click", () => {
   const currentlyPinned = $("#pin").getAttribute("aria-pressed") === "true";
   setPinned(!currentlyPinned);
+});
+$("#provider-select").addEventListener("change", (e) => {
+  applyTrayProvider(e.target.value);
+});
+$("#interval-input").addEventListener("change", (e) => {
+  applyInterval(e.target.value);
+});
+$("#scale-input").addEventListener("change", (e) => {
+  setTextScale(parseFloat(e.target.value));
+});
+$("#sonnet-toggle").addEventListener("change", (e) => {
+  applySonnetVisible(e.target.checked);
 });
 $(".card__header").addEventListener("mousedown", startPinnedDrag);
 $("#resize-handle").addEventListener("mousedown", startResize);
@@ -215,7 +455,7 @@ listen("usage-updated", (event) => {
 });
 
 // 初期ロード時に API を叩かない（backend のポーラから event が来るのを待つ）。
-// プレースホルダだけ出す。
 initTextScale();
 initPinned();
+initSettings();
 $("#updated-at").textContent = "waiting for data…";

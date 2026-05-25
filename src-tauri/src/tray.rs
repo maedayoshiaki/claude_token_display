@@ -1,7 +1,7 @@
 //! メニューバー / システムトレイ。
 //!
 //! 表示: 現在のセッション (5h) の utilization % のみ。詳細はポップオーバーで。
-//! 5分おきに自動更新。429 を受けたら Retry-After を尊重。
+//! 5 分おき (ユーザ設定で変更可) に自動更新。429 を受けたら Retry-After を尊重。
 
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
@@ -13,10 +13,11 @@ use tauri::{
 };
 use tauri_plugin_positioner::{Position, WindowExt};
 
-use crate::{api::UsageSnapshot, fetch_usage_inner, FetchResult};
+use crate::{
+    api::UsageSnapshot, current_poll_interval_secs, current_provider, fetch_all_usage, poll_wake,
+    AllUsage, FetchResult, Provider, MIN_POLL_INTERVAL_SECS,
+};
 
-const POLL_INTERVAL_SECS: u64 = 300;
-const MIN_SLEEP_SECS: u64 = 60;
 const INITIAL_DELAY_SECS: u64 = 2;
 
 /// クリック時に記録するトレイアイコンの screen 矩形 (physical pixel)。
@@ -95,16 +96,27 @@ impl ScreenRect {
 }
 
 /// 最後に成功 / 失敗した取得結果のキャッシュ。クリックや popover オープン時はこれを返す。
-type Cache = Arc<Mutex<FetchResult>>;
+type Cache = Arc<Mutex<AllUsage>>;
+
+fn loading_all_usage() -> AllUsage {
+    AllUsage {
+        claude: FetchResult::Err {
+            provider: Provider::Claude,
+            message: "Loading…".into(),
+        },
+        codex: FetchResult::Err {
+            provider: Provider::Codex,
+            message: "Loading…".into(),
+        },
+    }
+}
 
 pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let refresh_item = MenuItem::with_id(app, "refresh", "Refresh now", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&refresh_item, &quit_item])?;
 
-    let cache: Cache = Arc::new(Mutex::new(FetchResult::Err {
-        message: "Loading…".into(),
-    }));
+    let cache: Cache = Arc::new(Mutex::new(loading_all_usage()));
 
     let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))
         .expect("embedded tray icon should decode");
@@ -125,7 +137,7 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
                 let h = menu_handle.clone();
                 let c = menu_cache.clone();
                 tauri::async_runtime::spawn(async move {
-                    let result = fetch_usage_inner().await;
+                    let result = fetch_all_usage().await;
                     update_cache_and_emit(&h, &c, result);
                 });
             }
@@ -159,37 +171,53 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let tray_clone = tray.clone();
     let cache_clone = cache.clone();
 
-    // ポーラ: 起動 2 秒後に初回取得 → 以降は POLL_INTERVAL_SECS or Retry-After で間隔調整
+    // ポーラ: 起動 INITIAL_DELAY_SECS 秒後に初回取得 → 以降は設定値 or Retry-After で間隔調整。
+    // 設定変更 (provider / interval) があれば notify_one() で即起き → キャッシュからトレイを即時更新 → 再取得。
+    let wake = poll_wake();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_secs(INITIAL_DELAY_SECS)).await;
         loop {
-            let result = fetch_usage_inner().await;
-            let sleep_secs = decide_sleep(&result);
-            update_tray(&tray_clone, &result);
-            *cache_clone.lock().unwrap() = result.clone();
-            let _ = handle.emit("usage-updated", &result);
-            tokio::time::sleep(Duration::from_secs(sleep_secs)).await;
+            let all = fetch_all_usage().await;
+            let sleep_secs = decide_sleep_all(&all, current_poll_interval_secs());
+            update_tray(&tray_clone, &all);
+            *cache_clone.lock().unwrap() = all.clone();
+            let _ = handle.emit("usage-updated", &all);
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(sleep_secs)) => {}
+                _ = wake.notified() => {
+                    // 設定変更で起こされたケース。新フェッチを待たずに
+                    // キャッシュ + 新しい provider 設定でトレイを即時更新する。
+                    let cached = cache_clone.lock().unwrap().clone();
+                    update_tray(&tray_clone, &cached);
+                }
+            }
         }
     });
 
     Ok(())
 }
 
-fn decide_sleep(r: &FetchResult) -> u64 {
+fn decide_sleep(r: &FetchResult, configured_interval: u64) -> u64 {
+    let normal = configured_interval.max(MIN_POLL_INTERVAL_SECS);
     match r {
-        FetchResult::RateLimited { retry_after_secs } => {
-            // Retry-After + 余裕 5s。最低 60s は空ける。
-            retry_after_secs
-                .map(|s| s + 5)
-                .unwrap_or(POLL_INTERVAL_SECS)
-                .max(MIN_SLEEP_SECS)
-        }
-        FetchResult::Err { .. } => MIN_SLEEP_SECS, // エラー時も叩きすぎないように 60s 待つ
-        FetchResult::Ok(_) => POLL_INTERVAL_SECS,
+        FetchResult::RateLimited {
+            retry_after_secs, ..
+        } => retry_after_secs
+            .map(|s| s + 5)
+            .unwrap_or(normal)
+            .max(MIN_POLL_INTERVAL_SECS),
+        FetchResult::Err { .. } => MIN_POLL_INTERVAL_SECS,
+        FetchResult::Ok { .. } => normal,
     }
 }
 
-fn update_cache_and_emit<R: Runtime>(handle: &AppHandle<R>, cache: &Cache, result: FetchResult) {
+/// 両プロバイダの結果を見て、より長めの待ちを採用する (どちらかが 429 ならそれを尊重)。
+fn decide_sleep_all(all: &AllUsage, configured_interval: u64) -> u64 {
+    decide_sleep(&all.claude, configured_interval)
+        .max(decide_sleep(&all.codex, configured_interval))
+}
+
+fn update_cache_and_emit<R: Runtime>(handle: &AppHandle<R>, cache: &Cache, result: AllUsage) {
     if let Some(tray) = handle.tray_by_id("main") {
         update_tray(&tray, &result);
     }
@@ -197,17 +225,73 @@ fn update_cache_and_emit<R: Runtime>(handle: &AppHandle<R>, cache: &Cache, resul
     let _ = handle.emit("usage-updated", &result);
 }
 
-fn update_tray<R: Runtime>(tray: &tauri::tray::TrayIcon<R>, result: &FetchResult) {
-    let (title, tooltip) = match result {
-        FetchResult::Ok(s) => (format_title(s), format_tooltip(s)),
-        FetchResult::RateLimited { retry_after_secs } => {
-            let s = retry_after_secs.unwrap_or(0);
-            ("…".to_string(), format!("Rate limited, retry in {}s", s))
-        }
-        FetchResult::Err { message } => ("!".to_string(), message.clone()),
+fn update_tray<R: Runtime>(tray: &tauri::tray::TrayIcon<R>, all: &AllUsage) {
+    let primary_provider = current_provider();
+    let primary = match primary_provider {
+        Provider::Claude => &all.claude,
+        Provider::Codex => &all.codex,
     };
+    let title = match primary {
+        FetchResult::Ok { snapshot, .. } => format_title(snapshot),
+        FetchResult::RateLimited { .. } => "…".to_string(),
+        FetchResult::Err { .. } => "!".to_string(),
+    };
+    // Windows のシステムトレイは title 非表示。プライマリ選択が「反映されている」と分かるように
+    // tooltip の先頭にプライマリ要約 (例: "Claude 43%") を入れ、その下に両プロバイダの詳細を続ける。
+    let tooltip = format_tooltip_text(primary_provider, primary, all);
     let _ = tray.set_title(Some(title));
     let _ = tray.set_tooltip(Some(tooltip));
+}
+
+fn format_tooltip_text(primary: Provider, primary_result: &FetchResult, all: &AllUsage) -> String {
+    let headline = format!(
+        "{} {}",
+        provider_label(primary),
+        primary_headline(primary_result)
+    );
+    let claude_line = provider_tooltip_line(
+        Provider::Claude,
+        primary == Provider::Claude,
+        &all.claude,
+    );
+    let codex_line =
+        provider_tooltip_line(Provider::Codex, primary == Provider::Codex, &all.codex);
+    format!("{}\n{}\n{}", headline, claude_line, codex_line)
+}
+
+fn primary_headline(r: &FetchResult) -> String {
+    match r {
+        FetchResult::Ok { snapshot, .. } => match snapshot.five_hour.as_ref() {
+            Some(b) => format!("{}%", pct(b.utilization)),
+            None => "—".to_string(),
+        },
+        FetchResult::RateLimited { .. } => "rate limited".to_string(),
+        FetchResult::Err { message, .. } => format!("error: {}", message),
+    }
+}
+
+fn provider_label(p: Provider) -> &'static str {
+    match p {
+        Provider::Claude => "Claude",
+        Provider::Codex => "Codex",
+    }
+}
+
+fn provider_tooltip_line(provider: Provider, is_primary: bool, r: &FetchResult) -> String {
+    let marker = if is_primary { "▶" } else { "  " };
+    let name = provider_label(provider);
+    match r {
+        FetchResult::Ok { snapshot, .. } => {
+            format!("{} {}: {}", marker, name, format_tooltip(snapshot))
+        }
+        FetchResult::RateLimited {
+            retry_after_secs, ..
+        } => {
+            let s = retry_after_secs.unwrap_or(0);
+            format!("{} {}: rate limited (retry {}s)", marker, name, s)
+        }
+        FetchResult::Err { message, .. } => format!("{} {}: {}", marker, name, message),
+    }
 }
 
 fn format_title(s: &UsageSnapshot) -> String {
@@ -439,6 +523,7 @@ fn clamp_axis(value: i32, min: i32, max: i32) -> i32 {
 mod tests {
     use super::*;
     use crate::api::Bucket;
+    use crate::Provider;
     use chrono::Utc;
 
     fn b(u: f64) -> Bucket {
@@ -468,17 +553,59 @@ mod tests {
     #[test]
     fn decide_sleep_uses_retry_after_for_429() {
         let r = FetchResult::RateLimited {
+            provider: Provider::Claude,
             retry_after_secs: Some(120),
         };
-        assert_eq!(decide_sleep(&r), 125);
+        assert_eq!(decide_sleep(&r, 300), 125);
     }
 
     #[test]
     fn decide_sleep_enforces_min() {
         let r = FetchResult::RateLimited {
+            provider: Provider::Claude,
             retry_after_secs: Some(5),
         };
-        assert_eq!(decide_sleep(&r), 60);
+        assert_eq!(decide_sleep(&r, 300), 60);
+    }
+
+    #[test]
+    fn decide_sleep_honors_configured_interval_on_ok() {
+        let r = FetchResult::Ok {
+            provider: Provider::Claude,
+            snapshot: UsageSnapshot::default(),
+        };
+        assert_eq!(decide_sleep(&r, 900), 900);
+    }
+
+    #[test]
+    fn decide_sleep_all_takes_longest_wait() {
+        let all = AllUsage {
+            claude: FetchResult::Ok {
+                provider: Provider::Claude,
+                snapshot: UsageSnapshot::default(),
+            },
+            codex: FetchResult::RateLimited {
+                provider: Provider::Codex,
+                retry_after_secs: Some(200),
+            },
+        };
+        // Claude: configured 300; Codex: 205 (200+5). 結果は 300。
+        assert_eq!(decide_sleep_all(&all, 300), 300);
+    }
+
+    #[test]
+    fn decide_sleep_all_respects_long_retry_after() {
+        let all = AllUsage {
+            claude: FetchResult::Ok {
+                provider: Provider::Claude,
+                snapshot: UsageSnapshot::default(),
+            },
+            codex: FetchResult::RateLimited {
+                provider: Provider::Codex,
+                retry_after_secs: Some(900),
+            },
+        };
+        assert_eq!(decide_sleep_all(&all, 300), 905);
     }
 
     fn rect(x: i32, y: i32, w: i32, h: i32) -> ScreenRect {

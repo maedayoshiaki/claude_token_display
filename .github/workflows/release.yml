@@ -119,11 +119,17 @@ jobs:
             - **Windows**: `*_x64-setup.exe` または `*_x64_en-US.msi`
 
             ## 前提
-            `claude` CLI でログイン済みであること。未ログインの場合は `claude` を起動してログインしてください。
+
+            表示したいプロバイダの CLI でログイン済みであること (両方でも片方でも可)。
+
+            - **Claude**: `claude` CLI でログイン
+            - **Codex**: `codex` CLI でログイン
 
             ## 初回起動
 
             **macOS**: 「開発元未確認」と出たら右クリック → 開く。
             **Windows**: SmartScreen が出たら「詳細情報」→「実行」。
+
+            詳細は [README](https://github.com/maedayoshiaki/claude_token_display/blob/main/README.md) を参照。
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
