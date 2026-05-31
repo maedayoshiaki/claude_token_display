@@ -10,10 +10,20 @@ const TEXT_SCALE_KEY = "token_display_text_scale";
 const INTERVAL_MIN_KEY = "token_display_interval_min";
 const SONNET_VISIBLE_KEY = "token_display_sonnet_visible";
 const BAR_VISIBLE_KEY = "token_display_bar_visible";
+const CLAUDE_VISIBLE_KEY = "token_display_claude_visible";
+const CODEX_VISIBLE_KEY = "token_display_codex_visible";
+const WEEKLY_VISIBLE_KEY = "token_display_weekly_visible";
+const RESETS_VISIBLE_KEY = "token_display_resets_visible";
+const TRAY_METRIC_KEY = "token_display_tray_metric";
+const MINI_METRIC_KEY = "token_display_mini_metric";
 
 const TEXT_SCALE_MIN = 0.6;
 const TEXT_SCALE_MAX = 2.0;
 const TEXT_SCALE_STEP = 0.05;
+const COMPACT_WIDTH_MAX = 240;
+const COMPACT_HEIGHT_MAX = 190;
+const MINIMAL_WIDTH_MAX = 170;
+const MINIMAL_HEIGHT_MAX = 112;
 const INTERVAL_MIN_MIN = 1;
 const INTERVAL_MIN_MAX = 60;
 const DEFAULT_INTERVAL_MIN = 5;
@@ -25,7 +35,14 @@ let textScale = 1;
 let currentIntervalMin = DEFAULT_INTERVAL_MIN;
 let showSonnet = true;
 let showBar = true;
+let showClaude = true;
+let showCodex = true;
+let showWeekly = true;
+let showResets = true;
+let trayMetric = "five_hour";
+let miniMetric = "five_hour";
 let lastAllUsage = null; // 最後に描画した payload (トグル反映の再描画に使う)
+let currentDensity = "";
 
 function levelOf(util) {
   if (util < 0.5) return "low";
@@ -169,6 +186,23 @@ function rerender() {
   if (lastAllUsage) render(lastAllUsage);
 }
 
+function densityForSize(width, height) {
+  if (width <= MINIMAL_WIDTH_MAX || height <= MINIMAL_HEIGHT_MAX) {
+    return "minimal";
+  }
+  if (width <= COMPACT_WIDTH_MAX || height <= COMPACT_HEIGHT_MAX) {
+    return "compact";
+  }
+  return "full";
+}
+
+function updateDensity() {
+  const density = densityForSize(window.innerWidth, window.innerHeight);
+  if (density === currentDensity) return;
+  currentDensity = density;
+  document.body.dataset.density = density;
+}
+
 function renderPinned(pinned) {
   isPinned = pinned;
   document.body.dataset.pinned = String(pinned);
@@ -281,6 +315,25 @@ function saveBarVisible(visible) {
   }
 }
 
+function loadStoredBool(key) {
+  try {
+    const v = localStorage.getItem(key);
+    if (v === "0" || v === "false") return false;
+    if (v === "1" || v === "true") return true;
+  } catch {
+    // ignore
+  }
+  return true;
+}
+
+function saveBool(key, value) {
+  try {
+    localStorage.setItem(key, value ? "1" : "0");
+  } catch {
+    // ignore
+  }
+}
+
 async function applyInterval(min) {
   currentIntervalMin = clampIntervalMin(min);
   const input = $("#interval-input");
@@ -307,6 +360,50 @@ function applyBarVisible(visible) {
   $("#bar-toggle").checked = showBar;
   document.body.dataset.showBar = String(showBar);
   saveBarVisible(showBar);
+}
+
+function applyClaudeVisible(visible) {
+  showClaude = !!visible;
+  $("#claude-toggle").checked = showClaude;
+  document.body.dataset.showClaude = String(showClaude);
+  saveBool(CLAUDE_VISIBLE_KEY, showClaude);
+}
+
+function applyCodexVisible(visible) {
+  showCodex = !!visible;
+  $("#codex-toggle").checked = showCodex;
+  document.body.dataset.showCodex = String(showCodex);
+  saveBool(CODEX_VISIBLE_KEY, showCodex);
+}
+
+function applyWeeklyVisible(visible) {
+  showWeekly = !!visible;
+  $("#weekly-toggle").checked = showWeekly;
+  document.body.dataset.showWeekly = String(showWeekly);
+  saveBool(WEEKLY_VISIBLE_KEY, showWeekly);
+}
+
+function applyResetsVisible(visible) {
+  showResets = !!visible;
+  $("#resets-toggle").checked = showResets;
+  document.body.dataset.showResets = String(showResets);
+  saveBool(RESETS_VISIBLE_KEY, showResets);
+}
+
+async function applyTrayMetric(metric) {
+  trayMetric = metric;
+  const sel = $("#tray-metric-select");
+  if (sel) sel.value = trayMetric;
+  try { localStorage.setItem(TRAY_METRIC_KEY, trayMetric); } catch {}
+  try { await invoke("set_tray_metric", { metric: trayMetric }); } catch (e) { console.error(e); }
+}
+
+function applyMiniMetric(metric) {
+  miniMetric = metric;
+  const sel = $("#mini-metric-select");
+  if (sel) sel.value = miniMetric;
+  document.body.dataset.miniMetric = miniMetric;
+  try { localStorage.setItem(MINI_METRIC_KEY, miniMetric); } catch {}
 }
 
 async function setPinned(pinned) {
@@ -346,9 +443,11 @@ async function refresh() {
 function toggleSettings() {
   const panel = $("#settings-panel");
   const btn = $("#settings");
+  const preview = $("#preview-label");
   if (!panel || !btn) return;
   const open = panel.hidden;
   panel.hidden = !open;
+  if (preview) preview.hidden = !open;
   btn.setAttribute("aria-pressed", String(open));
 }
 
@@ -381,10 +480,37 @@ async function initSettings() {
 
   const storedIntervalMin = loadStoredIntervalMin();
   showSonnet = loadStoredSonnetVisible();
-  $("#sonnet-toggle").checked = showSonnet;
   showBar = loadStoredBarVisible();
+  showClaude = loadStoredBool(CLAUDE_VISIBLE_KEY);
+  showCodex = loadStoredBool(CODEX_VISIBLE_KEY);
+  showWeekly = loadStoredBool(WEEKLY_VISIBLE_KEY);
+  showResets = loadStoredBool(RESETS_VISIBLE_KEY);
+
+  $("#sonnet-toggle").checked = showSonnet;
   $("#bar-toggle").checked = showBar;
+  $("#claude-toggle").checked = showClaude;
+  $("#codex-toggle").checked = showCodex;
+  $("#weekly-toggle").checked = showWeekly;
+  $("#resets-toggle").checked = showResets;
+
   document.body.dataset.showBar = String(showBar);
+  document.body.dataset.showClaude = String(showClaude);
+  document.body.dataset.showCodex = String(showCodex);
+  document.body.dataset.showWeekly = String(showWeekly);
+  document.body.dataset.showResets = String(showResets);
+
+  // 小さいモード設定
+  try { trayMetric = localStorage.getItem(TRAY_METRIC_KEY) || backendSettings?.tray_metric || "five_hour"; } catch {}
+  try { miniMetric = localStorage.getItem(MINI_METRIC_KEY) || "five_hour"; } catch {}
+  const traySelEl = $("#tray-metric-select");
+  if (traySelEl) traySelEl.value = trayMetric;
+  const miniSelEl = $("#mini-metric-select");
+  if (miniSelEl) miniSelEl.value = miniMetric;
+  document.body.dataset.miniMetric = miniMetric;
+  // バックエンドに tray metric を反映
+  if (!backendSettings || backendSettings.tray_metric !== trayMetric) {
+    invoke("set_tray_metric", { metric: trayMetric }).catch(() => {});
+  }
 
   const intervalMin =
     storedIntervalMin ??
@@ -431,14 +557,34 @@ $("#sonnet-toggle").addEventListener("change", (e) => {
 $("#bar-toggle").addEventListener("change", (e) => {
   applyBarVisible(e.target.checked);
 });
-$(".card__header").addEventListener("mousedown", startPinnedDrag);
+$("#claude-toggle").addEventListener("change", (e) => {
+  applyClaudeVisible(e.target.checked);
+});
+$("#codex-toggle").addEventListener("change", (e) => {
+  applyCodexVisible(e.target.checked);
+});
+$("#weekly-toggle").addEventListener("change", (e) => {
+  applyWeeklyVisible(e.target.checked);
+});
+$("#resets-toggle").addEventListener("change", (e) => {
+  applyResetsVisible(e.target.checked);
+});
+$("#tray-metric-select").addEventListener("change", (e) => {
+  applyTrayMetric(e.target.value);
+});
+$("#mini-metric-select").addEventListener("change", (e) => {
+  applyMiniMetric(e.target.value);
+});
+$(".card").addEventListener("mousedown", startPinnedDrag);
 $("#resize-handle").addEventListener("mousedown", startResize);
+window.addEventListener("resize", updateDensity);
 
 listen("usage-updated", (event) => {
   render(event.payload);
 });
 
 // 初期ロード時に API を叩かない（backend のポーラから event が来るのを待つ）。
+updateDensity();
 initTextScale();
 initPinned();
 initSettings();

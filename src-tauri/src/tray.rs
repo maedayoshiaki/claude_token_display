@@ -14,8 +14,8 @@ use tauri::{
 use tauri_plugin_positioner::{Position, WindowExt};
 
 use crate::{
-    api::UsageSnapshot, current_poll_interval_secs, fetch_all_usage, poll_wake, AllUsage,
-    FetchResult, Provider, MIN_POLL_INTERVAL_SECS,
+    api::UsageSnapshot, current_poll_interval_secs, current_tray_metric, fetch_all_usage,
+    poll_wake, AllUsage, FetchResult, Provider, TrayMetric, MIN_POLL_INTERVAL_SECS,
 };
 
 const INITIAL_DELAY_SECS: u64 = 2;
@@ -232,23 +232,30 @@ fn update_tray<R: Runtime>(tray: &tauri::tray::TrayIcon<R>, all: &AllUsage) {
     let _ = tray.set_tooltip(Some(tooltip));
 }
 
-/// トレイ title は両プロバイダの 5h % を併記: `C 43% · X 30%`。
+/// トレイ title は両プロバイダのメトリクスを併記: `C 43% · X 30%`。
 /// 片方しかログインしていない場合は失敗側を `!` に。両方失敗で `!`。
 fn format_dual_title(all: &AllUsage) -> String {
-    let c = short_status(&all.claude);
-    let x = short_status(&all.codex);
+    let metric = current_tray_metric();
+    let c = short_status(&all.claude, metric);
+    let x = short_status(&all.codex, metric);
     if c == "!" && x == "!" {
         return "!".to_string();
     }
     format!("C {} · X {}", c, x)
 }
 
-fn short_status(r: &FetchResult) -> String {
+fn short_status(r: &FetchResult, metric: TrayMetric) -> String {
     match r {
-        FetchResult::Ok { snapshot, .. } => match snapshot.five_hour.as_ref() {
-            Some(b) => format!("{}%", pct(b.utilization)),
-            None => "—".to_string(),
-        },
+        FetchResult::Ok { snapshot, .. } => {
+            let bucket = match metric {
+                TrayMetric::FiveHour => snapshot.five_hour.as_ref(),
+                TrayMetric::Weekly => snapshot.seven_day.as_ref(),
+            };
+            match bucket {
+                Some(b) => format!("{}%", pct(b.utilization)),
+                None => "—".to_string(),
+            }
+        }
         FetchResult::RateLimited { .. } => "…".to_string(),
         FetchResult::Err { .. } => "!".to_string(),
     }
@@ -323,6 +330,7 @@ fn toggle_popover<R: Runtime>(app: &AppHandle<R>, cache: &Cache) {
     #[cfg(target_os = "macos")]
     crate::macos_panel::promote_to_floating_panel(&window);
 
+    let _ = window.set_shadow(false);
     let _ = window.show();
 
     // NonactivatingPanel 構成では set_focus すると key 取得失敗 → 副作用が出るため

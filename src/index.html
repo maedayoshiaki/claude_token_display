@@ -17,6 +17,33 @@
       </header>
 
       <section id="settings-panel" class="settings" hidden>
+        <div class="settings__section-title">表示する項目</div>
+        <label class="settings__row">
+          <span class="settings__label">Claude</span>
+          <input id="claude-toggle" type="checkbox" class="settings__control settings__control--check" />
+        </label>
+        <label class="settings__row">
+          <span class="settings__label">Codex</span>
+          <input id="codex-toggle" type="checkbox" class="settings__control settings__control--check" />
+        </label>
+        <label class="settings__row">
+          <span class="settings__label">5h バー</span>
+          <input id="bar-toggle" type="checkbox" class="settings__control settings__control--check" />
+        </label>
+        <label class="settings__row">
+          <span class="settings__label">週間使用率</span>
+          <input id="weekly-toggle" type="checkbox" class="settings__control settings__control--check" />
+        </label>
+        <label class="settings__row">
+          <span class="settings__label">Sonnet 週間</span>
+          <input id="sonnet-toggle" type="checkbox" class="settings__control settings__control--check" />
+        </label>
+        <label class="settings__row">
+          <span class="settings__label">リセット時刻</span>
+          <input id="resets-toggle" type="checkbox" class="settings__control settings__control--check" />
+        </label>
+        <div class="settings__divider"></div>
+        <div class="settings__section-title">基本設定</div>
         <label class="settings__row">
           <span class="settings__label">更新間隔</span>
           <span class="settings__inline">
@@ -33,15 +60,25 @@
             <span class="settings__suffix">×</span>
           </span>
         </label>
+        <div class="settings__divider"></div>
+        <div class="settings__section-title">小さいモード</div>
         <label class="settings__row">
-          <span class="settings__label">バーを表示</span>
-          <input id="bar-toggle" type="checkbox" class="settings__control settings__control--check" />
+          <span class="settings__label">トレイ表示</span>
+          <select id="tray-metric-select" class="settings__control">
+            <option value="five_hour">5h セッション</option>
+            <option value="weekly">週間</option>
+          </select>
         </label>
         <label class="settings__row">
-          <span class="settings__label">Sonnet 週間を表示</span>
-          <input id="sonnet-toggle" type="checkbox" class="settings__control settings__control--check" />
+          <span class="settings__label">極小ウィンドウ</span>
+          <select id="mini-metric-select" class="settings__control">
+            <option value="five_hour">5h セッション</option>
+            <option value="weekly">週間</option>
+            <option value="both">両方</option>
+          </select>
         </label>
       </section>
+      <div id="preview-label" class="preview-label" hidden>▾ プレビュー</div>
 
       <div id="content">
         <section class="provider" data-provider="claude">

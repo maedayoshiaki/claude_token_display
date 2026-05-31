@@ -7,8 +7,10 @@
   --bar-fill-mid: #ffcc00;
   --bar-fill-high: #ff453a;
   --divider: rgba(255, 255, 255, 0.08);
-  --radius: 12px;
+  --radius: 8px;
   --text-scale: 1;
+  --window-shadow-pad: 4px;
+  --window-shadow: 0 2px 7px rgba(0, 0, 0, 0.18);
 }
 
 @media (prefers-color-scheme: light) {
@@ -18,6 +20,7 @@
     --fg-dim: #6e6e73;
     --bar-bg: rgba(0, 0, 0, 0.08);
     --divider: rgba(0, 0, 0, 0.08);
+    --window-shadow: 0 2px 7px rgba(0, 0, 0, 0.12);
   }
 }
 
@@ -29,7 +32,7 @@
 
 html,
 body {
-  background: var(--bg);
+  background: transparent;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: calc(13px * var(--text-scale));
   color: var(--fg);
@@ -38,7 +41,7 @@ body {
 }
 
 body {
-  padding: 0;
+  padding: var(--window-shadow-pad);
 }
 
 .card {
@@ -48,9 +51,10 @@ body {
   height: 100%;
   min-height: 0;
   background: var(--bg);
-  border-radius: 0;
+  border-radius: var(--radius);
   padding: 8px 14px 10px;
   overflow: hidden;
+  box-shadow: var(--window-shadow);
 }
 
 .card__header {
@@ -67,7 +71,7 @@ body {
   flex: 0 0 auto;
 }
 
-body[data-pinned="true"] .card__header {
+body[data-pinned="true"] .card {
   cursor: move;
 }
 
@@ -129,12 +133,29 @@ body[data-pinned="true"] .card__header {
   flex-direction: column;
   gap: 6px;
   padding: 8px 10px;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
   background: var(--bar-bg);
   border-radius: 8px;
+  max-height: 50vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 .settings[hidden] {
   display: none;
+}
+.settings__section-title {
+  font-size: calc(10px * var(--text-scale));
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  opacity: 0.7;
+  padding-top: 2px;
+}
+.settings__divider {
+  height: 1px;
+  background: var(--divider);
+  margin: 2px 0;
 }
 .settings__row {
   display: flex;
@@ -231,7 +252,7 @@ body[data-pinned="true"] .card__header {
 .bucket__pct {
   font-size: calc(22px * var(--text-scale));
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
   font-variant-numeric: tabular-nums;
 }
 
@@ -327,6 +348,28 @@ body[data-show-bar="false"] .bucket--hero {
 body[data-show-bar="false"] .bucket--hero .bucket__row {
   margin-bottom: 0;
 }
+
+/* プロバイダ表示切り替え */
+body[data-show-claude="false"] .provider[data-provider="claude"] { display: none; }
+body[data-show-codex="false"] .provider[data-provider="codex"] { display: none; }
+
+/* 週間使用率非表示 */
+body[data-show-weekly="false"] .bucket--compact { display: none !important; }
+
+/* リセット時刻非表示 */
+body[data-show-resets="false"] .bucket__resets,
+body[data-show-resets="false"] .bucket__resets--compact { display: none !important; }
+
+/* プレビューラベル */
+.preview-label {
+  font-size: calc(10px * var(--text-scale));
+  color: var(--fg-dim);
+  text-align: center;
+  padding: 0 0 4px;
+  opacity: 0.45;
+  user-select: none;
+}
+.preview-label[hidden] { display: none; }
 
 #content {
   flex: 1;
@@ -434,7 +477,7 @@ body[data-show-bar="false"] .bucket--hero .bucket__row {
 
 @media (max-width: 240px) {
   body {
-    padding: 0;
+    padding: var(--window-shadow-pad);
   }
 
   .card {
@@ -482,4 +525,212 @@ body[data-show-bar="false"] .bucket--hero .bucket__row {
   .bucket--compact > * {
     min-width: 0;
   }
+}
+
+body[data-density="compact"] {
+  --window-shadow-pad: 3px;
+}
+
+body[data-density="compact"] .card {
+  padding: 6px 10px 7px;
+}
+
+body[data-density="compact"] .card__header {
+  margin-bottom: 4px;
+}
+
+body[data-density="compact"] .card__footer {
+  display: none;
+}
+
+body[data-density="compact"] .bucket--hero .bar {
+  display: none;
+}
+
+body[data-density="compact"] .bucket--hero {
+  padding-bottom: 0;
+}
+
+body[data-density="compact"] .bucket--hero .bucket__row {
+  margin-bottom: 0;
+}
+
+body[data-density="minimal"] {
+  --window-shadow-pad: 2px;
+  font-size: 11px;
+}
+
+body[data-density="minimal"] .card {
+  justify-content: center;
+  padding: 4px 6px;
+}
+
+body[data-density="minimal"] .card__header,
+body[data-density="minimal"] .settings,
+body[data-density="minimal"] .card__footer,
+body[data-density="minimal"] .bucket__title,
+body[data-density="minimal"] .bucket__resets,
+body[data-density="minimal"] .bar {
+  display: none !important;
+}
+
+/* compact bucket: デフォルト (five_hour) は非表示 */
+body[data-density="minimal"] .bucket--compact { display: none !important; }
+
+/* --- weekly のみ: w:XX% を大きく表示 --- */
+body[data-density="minimal"][data-mini-metric="weekly"] .bucket--hero { display: none !important; }
+body[data-density="minimal"][data-mini-metric="weekly"] .bucket--compact {
+  display: flex !important;
+  gap: 0;
+  padding: 0;
+}
+body[data-density="minimal"][data-mini-metric="weekly"] .bucket--compact .bucket__name,
+body[data-density="minimal"][data-mini-metric="weekly"] .bucket--compact .bucket__sonnet,
+body[data-density="minimal"][data-mini-metric="weekly"] .bucket--compact .bucket__resets--compact { display: none; }
+body[data-density="minimal"][data-mini-metric="weekly"] .bucket__pct--compact {
+  display: inline-flex;
+  align-items: baseline;
+  font-size: 15px;
+  line-height: 1;
+}
+body[data-density="minimal"][data-mini-metric="weekly"] .bucket__pct--compact::before {
+  content: "w:";
+  font-size: 9px;
+  line-height: 1;
+  opacity: 0.6;
+  margin-right: 1px;
+}
+
+/* --- 両方: 5h:XX% w:XX% を横並びで表示 --- */
+body[data-density="minimal"][data-mini-metric="both"] .provider__body {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 5px;
+}
+body[data-density="minimal"][data-mini-metric="both"] .bucket--hero {
+  display: flex !important;
+  align-items: baseline;
+  padding: 0;
+}
+body[data-density="minimal"][data-mini-metric="both"] .bucket--hero .bucket__row {
+  display: flex !important;
+  align-items: baseline;
+  margin: 0;
+}
+body[data-density="minimal"][data-mini-metric="both"] .bucket--compact {
+  display: flex !important;
+  align-items: baseline;
+  gap: 0;
+  padding: 0;
+}
+body[data-density="minimal"][data-mini-metric="both"] .bucket--compact .bucket__name,
+body[data-density="minimal"][data-mini-metric="both"] .bucket--compact .bucket__sonnet,
+body[data-density="minimal"][data-mini-metric="both"] .bucket--compact .bucket__resets--compact { display: none; }
+/* 5h: ラベルを hero の % の前に付加 */
+body[data-density="minimal"][data-mini-metric="both"] .bucket__pct {
+  display: inline-flex;
+  align-items: baseline;
+}
+body[data-density="minimal"][data-mini-metric="both"] .bucket__pct::before {
+  content: "5h:";
+  font-size: 9px;
+  line-height: 1;
+  opacity: 0.6;
+  margin-right: 1px;
+}
+/* w: ラベルを weekly の % の前に付加 */
+body[data-density="minimal"][data-mini-metric="both"] .bucket__pct--compact {
+  display: inline-flex;
+  align-items: baseline;
+  font-size: 15px;
+  line-height: 1;
+}
+body[data-density="minimal"][data-mini-metric="both"] .bucket__pct--compact::before {
+  content: "w:";
+  font-size: 9px;
+  line-height: 1;
+  opacity: 0.6;
+  margin-right: 1px;
+}
+
+body[data-density="minimal"] #content {
+  flex: 0 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  overflow: hidden;
+}
+
+body[data-density="minimal"] .provider,
+body[data-density="minimal"] .provider + .provider {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  border-top: none;
+  min-width: 0;
+}
+
+body[data-density="minimal"] .provider__head {
+  flex: 0 0 auto;
+  margin: 0;
+  min-width: 0;
+}
+
+body[data-density="minimal"] .provider__name {
+  max-width: 42px;
+  font-size: 8px;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+body[data-density="minimal"] .provider__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+body[data-density="minimal"] .provider__body[hidden] {
+  display: none;
+}
+
+body[data-density="minimal"] .bucket--hero {
+  display: block;
+  padding: 0;
+  border-top: none;
+}
+
+body[data-density="minimal"] .bucket__row {
+  display: block;
+  margin: 0;
+}
+
+body[data-density="minimal"] .bucket__pct {
+  font-size: 15px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+body[data-density="minimal"] .provider__error {
+  position: relative;
+  flex: 1 1 auto;
+  width: 1ch;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  line-height: 1;
+  overflow: hidden;
+}
+
+body[data-density="minimal"] .provider__error::before {
+  content: "!";
+  position: absolute;
+  inset: 0 auto auto 0;
+  color: var(--bar-fill-high);
+  font-size: 14px;
+  line-height: 1;
 }

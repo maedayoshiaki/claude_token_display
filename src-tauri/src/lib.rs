@@ -30,6 +30,9 @@ pub const MAX_POLL_INTERVAL_SECS: u64 = 3_600;
 pub const DEFAULT_POLL_INTERVAL_SECS: u64 = 300;
 static POLL_INTERVAL_SECS: AtomicU64 = AtomicU64::new(DEFAULT_POLL_INTERVAL_SECS);
 
+/// トレイに表示するメトリクス。
+static TRAY_METRIC: AtomicU8 = AtomicU8::new(0); // FiveHour
+
 /// poll 間隔変更 / プロバイダ変更時にポーラを起こすための notifier。
 static POLL_WAKE: OnceLock<Arc<Notify>> = OnceLock::new();
 
@@ -42,6 +45,29 @@ fn poll_wake_internal() -> &'static Arc<Notify> {
 pub enum Provider {
     Claude,
     Codex,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TrayMetric {
+    FiveHour,
+    Weekly,
+}
+
+impl TrayMetric {
+    fn as_u8(self) -> u8 {
+        match self {
+            TrayMetric::FiveHour => 0,
+            TrayMetric::Weekly => 1,
+        }
+    }
+
+    fn from_u8(value: u8) -> Self {
+        match value {
+            1 => TrayMetric::Weekly,
+            _ => TrayMetric::FiveHour,
+        }
+    }
 }
 
 impl Provider {
@@ -95,6 +121,7 @@ pub struct Settings {
     /// トレイのタイトルに表示するプロバイダ。ポップオーバーは常に両方を表示する。
     pub provider: Provider,
     pub poll_interval_secs: u64,
+    pub tray_metric: TrayMetric,
 }
 
 /// 全プロバイダの取得結果をまとめたもの。ポップオーバーはこの構造をそのまま受け取って描画する。
@@ -145,7 +172,15 @@ fn get_settings() -> Settings {
     Settings {
         provider: current_provider(),
         poll_interval_secs: POLL_INTERVAL_SECS.load(Ordering::SeqCst),
+        tray_metric: current_tray_metric(),
     }
+}
+
+#[tauri::command]
+fn set_tray_metric(metric: TrayMetric) -> Settings {
+    TRAY_METRIC.store(metric.as_u8(), Ordering::SeqCst);
+    poll_wake_internal().notify_one();
+    get_settings()
 }
 
 #[tauri::command]
@@ -177,6 +212,10 @@ pub fn current_provider() -> Provider {
 
 pub fn current_poll_interval_secs() -> u64 {
     POLL_INTERVAL_SECS.load(Ordering::SeqCst)
+}
+
+pub fn current_tray_metric() -> TrayMetric {
+    TrayMetric::from_u8(TRAY_METRIC.load(Ordering::SeqCst))
 }
 
 pub fn poll_wake() -> Arc<Notify> {
@@ -275,6 +314,7 @@ pub fn run() {
             get_settings,
             set_provider,
             set_poll_interval,
+            set_tray_metric,
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -283,10 +323,12 @@ pub fn run() {
             }
             if let Some(popover) = app.get_webview_window("popover") {
                 let _ = popover.set_visible_on_all_workspaces(true);
+                let _ = popover.set_shadow(false);
                 #[cfg(target_os = "macos")]
                 {
                     // 起動時に NSWindow → NSPanel に class 書き換え + NonactivatingPanel
                     macos_panel::convert_to_nspanel(&popover);
+                    let _ = popover.set_shadow(false);
                     macos_panel::promote_to_floating_panel(&popover);
                     // アプリ外クリックを監視して popover を hide するモニタを登録
                     macos_panel::install_outside_click_dismiss(app.handle().clone());
