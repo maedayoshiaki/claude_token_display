@@ -562,16 +562,55 @@ body[data-density="condensed"] {
 
 body[data-density="condensed"] .card {
   justify-content: center;
-  padding: 5px 7px;
+  padding: 5px 24px 5px 7px;
 }
 
-body[data-density="condensed"] .card__header,
 body[data-density="condensed"] .settings,
 body[data-density="condensed"] .card__footer,
 body[data-density="condensed"] .bucket__title,
 body[data-density="condensed"] .bucket__resets,
 body[data-density="condensed"] .bar {
   display: none !important;
+}
+
+body[data-density="condensed"] .card__header {
+  position: absolute;
+  top: 50%;
+  right: 1px;
+  z-index: 2;
+  margin: 0;
+  transform: translateY(-50%);
+}
+
+body[data-density="condensed"] .header-actions {
+  display: flex;
+  width: auto;
+  margin-left: 0;
+  gap: 0;
+}
+
+body[data-density="condensed"] #settings,
+body[data-density="condensed"] #refresh {
+  display: none !important;
+}
+
+body[data-density="condensed"] #pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  width: 18px;
+  height: 22px;
+  padding: 0;
+  border-radius: 4px 0 0 4px;
+  font-size: 12px;
+  line-height: 1;
+  background: var(--bar-bg);
+}
+
+body[data-density="condensed"] #pin[aria-pressed="true"] {
+  background: var(--divider);
+  color: var(--fg);
 }
 
 body[data-density="condensed"] #content {
@@ -684,16 +723,55 @@ body[data-density="minimal"] {
 
 body[data-density="minimal"] .card {
   justify-content: center;
-  padding: 4px 6px;
+  padding: 4px 22px 4px 6px;
 }
 
-body[data-density="minimal"] .card__header,
 body[data-density="minimal"] .settings,
 body[data-density="minimal"] .card__footer,
 body[data-density="minimal"] .bucket__title,
 body[data-density="minimal"] .bucket__resets,
 body[data-density="minimal"] .bar {
   display: none !important;
+}
+
+body[data-density="minimal"] .card__header {
+  position: absolute;
+  top: 50%;
+  right: 1px;
+  z-index: 2;
+  margin: 0;
+  transform: translateY(-50%);
+}
+
+body[data-density="minimal"] .header-actions {
+  display: flex;
+  width: auto;
+  margin-left: 0;
+  gap: 0;
+}
+
+body[data-density="minimal"] #settings,
+body[data-density="minimal"] #refresh {
+  display: none !important;
+}
+
+body[data-density="minimal"] #pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  width: 16px;
+  height: 20px;
+  padding: 0;
+  border-radius: 4px 0 0 4px;
+  font-size: 11px;
+  line-height: 1;
+  background: var(--bar-bg);
+}
+
+body[data-density="minimal"] #pin[aria-pressed="true"] {
+  background: var(--divider);
+  color: var(--fg);
 }
 
 /* compact bucket: デフォルト (five_hour) は非表示 */
@@ -859,7 +937,7 @@ body[data-density="minimal"] .provider__error::before {
 
 @media (max-width: 108px) {
   body[data-density="minimal"] .card {
-    padding: 4px 5px;
+    padding: 4px 20px 4px 5px;
   }
 
   body[data-density="minimal"] .provider,
@@ -900,7 +978,14 @@ body[data-density="minimal"] .provider__error::before {
 
 @media (max-width: 84px) {
   body[data-density="minimal"] .card {
-    padding: 3px 4px;
+    padding: 3px 18px 3px 4px;
+  }
+
+  body[data-density="minimal"] #pin {
+    width: 14px;
+    min-width: 14px;
+    height: 18px;
+    font-size: 10px;
   }
 
   body[data-density="minimal"] #content {
@@ -934,7 +1019,14 @@ body[data-density="minimal"] .provider__error::before {
   }
 
   body[data-density="minimal"] .card {
-    padding: 2px;
+    padding: 2px 14px 2px 2px;
+  }
+
+  body[data-density="minimal"] #pin {
+    width: 12px;
+    min-width: 12px;
+    height: 16px;
+    font-size: 9px;
   }
 
   body[data-density="minimal"] #content {
@@ -976,7 +1068,14 @@ body[data-density="minimal"] .provider__error::before {
 
   body[data-density="minimal"] .card {
     border-radius: 4px;
-    padding: 1px;
+    padding: 1px 12px 1px 1px;
+  }
+
+  body[data-density="minimal"] #pin {
+    width: 10px;
+    min-width: 10px;
+    height: 14px;
+    font-size: 8px;
   }
 
   body[data-density="minimal"] #content {
