@@ -15,7 +15,8 @@ use tauri_plugin_positioner::{Position, WindowExt};
 
 use crate::{
     api::UsageSnapshot, current_poll_interval_secs, current_tray_metric, fetch_all_usage,
-    poll_wake, AllUsage, FetchResult, Provider, TrayMetric, MIN_POLL_INTERVAL_SECS,
+    poll_wake, resize_popover_width, AllUsage, FetchResult, Provider, TrayMetric,
+    POPOVER_DEFAULT_WIDTH, POPOVER_WIDTH_STEP, MIN_POLL_INTERVAL_SECS,
 };
 
 const INITIAL_DELAY_SECS: u64 = 2;
@@ -114,7 +115,18 @@ fn loading_all_usage() -> AllUsage {
 pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let refresh_item = MenuItem::with_id(app, "refresh", "Refresh now", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&refresh_item, &quit_item])?;
+    let wider_item = MenuItem::with_id(app, "wider_popover", "Wider popover", true, None::<&str>)?;
+    let reset_width_item = MenuItem::with_id(
+        app,
+        "reset_popover_width",
+        "Reset popover width",
+        true,
+        None::<&str>,
+    )?;
+    let menu = Menu::with_items(
+        app,
+        &[&refresh_item, &wider_item, &reset_width_item, &quit_item],
+    )?;
 
     let cache: Cache = Arc::new(Mutex::new(loading_all_usage()));
 
@@ -141,6 +153,8 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
                     update_cache_and_emit(&h, &c, result);
                 });
             }
+            "wider_popover" => adjust_popover_width(&menu_handle, POPOVER_WIDTH_STEP),
+            "reset_popover_width" => set_popover_width(&menu_handle, POPOVER_DEFAULT_WIDTH),
             _ => {}
         })
         .on_tray_icon_event(move |tray, event| {
@@ -195,6 +209,29 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     });
 
     Ok(())
+}
+
+fn current_popover_width<R: Runtime>(window: &tauri::WebviewWindow<R>) -> Option<f64> {
+    let scale = window.scale_factor().ok()?;
+    let size = window.inner_size().ok()?;
+    Some(size.to_logical::<f64>(scale).width)
+}
+
+fn adjust_popover_width<R: Runtime>(app: &AppHandle<R>, delta: f64) {
+    let Some(window) = app.get_webview_window("popover") else {
+        return;
+    };
+    let width = current_popover_width(&window)
+        .map(|width| width + delta)
+        .unwrap_or(POPOVER_DEFAULT_WIDTH);
+    let _ = resize_popover_width(&window, width);
+}
+
+fn set_popover_width<R: Runtime>(app: &AppHandle<R>, width: f64) {
+    let Some(window) = app.get_webview_window("popover") else {
+        return;
+    };
+    let _ = resize_popover_width(&window, width);
 }
 
 fn decide_sleep(r: &FetchResult, configured_interval: u64) -> u64 {

@@ -9,7 +9,9 @@ use api::UsageSnapshot;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, OnceLock};
-use tauri::Manager;
+#[cfg(not(target_os = "windows"))]
+use tauri::LogicalSize;
+use tauri::{LogicalUnit, Manager, PixelUnit, WindowSizeConstraints};
 use tokio::sync::Notify;
 
 /// popover が show() された最後の時刻 (epoch ms)。表示直後の
@@ -28,6 +30,10 @@ static CURRENT_PROVIDER: AtomicU8 = AtomicU8::new(Provider::CLAUDE_U8);
 pub const MIN_POLL_INTERVAL_SECS: u64 = 60;
 pub const MAX_POLL_INTERVAL_SECS: u64 = 3_600;
 pub const DEFAULT_POLL_INTERVAL_SECS: u64 = 300;
+pub(crate) const POPOVER_MIN_WIDTH: f64 = 1.0;
+const POPOVER_MIN_HEIGHT: f64 = 40.0;
+pub(crate) const POPOVER_DEFAULT_WIDTH: f64 = 340.0;
+pub(crate) const POPOVER_WIDTH_STEP: f64 = 24.0;
 static POLL_INTERVAL_SECS: AtomicU64 = AtomicU64::new(DEFAULT_POLL_INTERVAL_SECS);
 
 /// トレイに表示するメトリクス。
@@ -131,6 +137,13 @@ pub struct AllUsage {
     pub codex: FetchResult,
 }
 
+#[derive(Serialize, Clone, Debug)]
+pub struct PopoverSizeReport {
+    pub requested_width: f64,
+    pub inner_width: u32,
+    pub outer_width: u32,
+}
+
 #[tauri::command]
 async fn get_usage() -> AllUsage {
     fetch_all_usage().await
@@ -165,6 +178,98 @@ fn set_popover_pinned(pinned: bool) -> bool {
 #[tauri::command]
 fn suppress_popover_auto_hide() {
     suppress_popover_auto_hide_for(RESIZE_AUTO_HIDE_SUPPRESSION_MS);
+}
+
+#[tauri::command]
+fn set_popover_width(
+    window: tauri::WebviewWindow,
+    width: f64,
+) -> Result<PopoverSizeReport, String> {
+    resize_popover_width(&window, width)
+}
+
+pub(crate) fn resize_popover_width<R: tauri::Runtime>(
+    window: &tauri::WebviewWindow<R>,
+    width: f64,
+) -> Result<PopoverSizeReport, String> {
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    let current = window.inner_size().map_err(|e| e.to_string())?;
+    let logical = current.to_logical::<f64>(scale);
+    let width = width.clamp(POPOVER_MIN_WIDTH, 640.0);
+    set_popover_width_inner(&window, width, logical.height)?;
+    let inner = window.inner_size().map_err(|e| e.to_string())?;
+    let outer = window.outer_size().map_err(|e| e.to_string())?;
+    Ok(PopoverSizeReport {
+        requested_width: width,
+        inner_width: inner.width,
+        outer_width: outer.width,
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+fn set_popover_width_inner<R: tauri::Runtime>(
+    window: &tauri::WebviewWindow<R>,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    window
+        .set_size(LogicalSize::new(width, height))
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn set_popover_width_inner<R: tauri::Runtime>(
+    window: &tauri::WebviewWindow<R>,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    use windows_sys::Win32::Foundation::{HWND, RECT};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowRect, SetWindowPos, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER,
+    };
+
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+    let hwnd = hwnd.0 as HWND;
+    let width = (width * scale).round().max(1.0) as i32;
+    let mut rect = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+
+    let ok = unsafe { GetWindowRect(hwnd, &mut rect) };
+    if ok == 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+
+    let fallback_height = (height * scale).round().max(1.0) as i32;
+    let current_height = (rect.bottom - rect.top).max(fallback_height).max(1);
+    let ok = unsafe {
+        SetWindowPos(
+            hwnd,
+            std::ptr::null_mut(),
+            0,
+            0,
+            width,
+            current_height,
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+        )
+    };
+    if ok == 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    Ok(())
+}
+
+fn popover_size_constraints() -> WindowSizeConstraints {
+    WindowSizeConstraints {
+        min_width: Some(PixelUnit::Logical(LogicalUnit::new(POPOVER_MIN_WIDTH))),
+        min_height: Some(PixelUnit::Logical(LogicalUnit::new(POPOVER_MIN_HEIGHT))),
+        max_width: None,
+        max_height: None,
+    }
 }
 
 #[tauri::command]
@@ -311,6 +416,7 @@ pub fn run() {
             get_popover_pinned,
             set_popover_pinned,
             suppress_popover_auto_hide,
+            set_popover_width,
             get_settings,
             set_provider,
             set_poll_interval,
@@ -322,6 +428,7 @@ pub fn run() {
                 let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
             if let Some(popover) = app.get_webview_window("popover") {
+                let _ = popover.set_size_constraints(popover_size_constraints());
                 let _ = popover.set_visible_on_all_workspaces(true);
                 let _ = popover.set_shadow(false);
                 #[cfg(target_os = "macos")]
