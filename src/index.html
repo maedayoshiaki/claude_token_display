@@ -8,6 +8,11 @@
   </head>
   <body>
     <main class="card">
+      <div id="update-banner" class="update-banner" hidden>
+        <span class="update-banner__text">新しいバージョン <span id="update-version">—</span> が利用可能です</span>
+        <button id="update-open" class="update-banner__btn" type="button">開く</button>
+        <button id="update-dismiss" class="update-banner__close" type="button" title="閉じる" aria-label="閉じる">×</button>
+      </div>
       <header class="card__header">
         <div class="header-actions header-actions--right">
           <button id="pin" class="icon-btn icon-btn--pin-glyph" title="固定表示" aria-label="固定表示" aria-pressed="false">📌&#xFE0E;</button>
@@ -51,6 +56,17 @@
             <span class="settings__suffix">分</span>
           </span>
         </label>
+        <label class="settings__row">
+          <span class="settings__label">更新確認</span>
+          <span class="settings__inline">
+            <input id="update-interval-input" class="settings__control settings__control--num" type="number" min="1" max="168" step="1" />
+            <span class="settings__suffix">時間ごと</span>
+          </span>
+        </label>
+        <div class="settings__row">
+          <span class="settings__label" id="update-check-status">アプリの更新</span>
+          <button id="update-check-now" class="icon-btn icon-btn--small" type="button" title="今すぐ更新を確認">今すぐ確認</button>
+        </div>
         <label class="settings__row">
           <span class="settings__label">文字サイズ</span>
           <span class="settings__inline">

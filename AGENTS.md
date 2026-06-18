@@ -105,6 +105,11 @@ npm install
 # 開発起動
 npm run tauri dev
 
+# 更新通知のテスト (リリースを増やさずに「更新あり」を再現; dev ビルドのみ有効)
+# 既存の公開リリース (v0.4.2 等) が新版として通知される。
+$env:TOKEN_DISPLAY_FAKE_VERSION="0.0.1"; npm run tauri dev   # Windows PowerShell
+# macOS/Linux: TOKEN_DISPLAY_FAKE_VERSION=0.0.1 npm run tauri dev
+
 # 本番ビルド
 npm run tauri build
 

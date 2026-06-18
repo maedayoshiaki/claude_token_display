@@ -57,6 +57,58 @@ body {
   box-shadow: var(--window-shadow);
 }
 
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: rgba(10, 132, 255, 0.14);
+  color: var(--fg);
+  font-size: 0.85em;
+  line-height: 1.2;
+}
+.update-banner[hidden] {
+  display: none;
+}
+.update-banner__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.update-banner__btn {
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 5px;
+  padding: 2px 8px;
+  background: #0a84ff;
+  color: #fff;
+  font-size: 0.95em;
+  cursor: pointer;
+}
+.update-banner__btn:hover {
+  background: #0a74e0;
+}
+.update-banner__close {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  color: var(--fg-dim);
+  font-size: 1.1em;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.update-banner__close:hover {
+  color: var(--fg);
+}
+
+/* 極小モードでは更新バナーは場所を取りすぎるので隠す */
+body[data-density="minimal"] .update-banner,
+body[data-density="condensed"] .update-banner {
+  display: none;
+}
+
 .card__header {
   display: flex;
   align-items: center;

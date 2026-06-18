@@ -16,6 +16,8 @@ const WEEKLY_VISIBLE_KEY = "token_display_weekly_visible";
 const RESETS_VISIBLE_KEY = "token_display_resets_visible";
 const TRAY_METRIC_KEY = "token_display_tray_metric";
 const MINI_METRIC_KEY = "token_display_mini_metric";
+const UPDATE_DISMISSED_KEY = "token_display_update_dismissed";
+const UPDATE_INTERVAL_HOURS_KEY = "token_display_update_interval_hours";
 
 const TEXT_SCALE_MIN = 0.6;
 const TEXT_SCALE_MAX = 2.0;
@@ -35,6 +37,9 @@ const POPOVER_WIDTH_DEFAULT = 340;
 const INTERVAL_MIN_MIN = 1;
 const INTERVAL_MIN_MAX = 60;
 const DEFAULT_INTERVAL_MIN = 5;
+const UPDATE_INTERVAL_HOURS_MIN = 1;
+const UPDATE_INTERVAL_HOURS_MAX = 168;
+const DEFAULT_UPDATE_INTERVAL_HOURS = 6;
 const PROVIDER_LABELS = { claude: "Claude", codex: "Codex" };
 const WDAY_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -49,6 +54,7 @@ let showWeekly = true;
 let showResets = true;
 let trayMetric = "five_hour";
 let miniMetric = "five_hour";
+let updateIntervalHours = DEFAULT_UPDATE_INTERVAL_HOURS;
 let lastAllUsage = null; // 最後に描画した payload (トグル反映の再描画に使う)
 let currentDensity = "";
 let currentDensityResets = "";
@@ -617,6 +623,30 @@ async function initSettings() {
       // ignore — 次回反映される
     }
   }
+
+  // 更新確認の間隔 (時間)
+  const storedUpdateHours = loadStoredUpdateIntervalHours();
+  updateIntervalHours =
+    storedUpdateHours ??
+    (backendSettings?.update_check_interval_secs
+      ? clampUpdateIntervalHours(backendSettings.update_check_interval_secs / 3600)
+      : DEFAULT_UPDATE_INTERVAL_HOURS);
+  const updateIntervalInput = $("#update-interval-input");
+  if (updateIntervalInput) updateIntervalInput.value = updateIntervalHours;
+
+  if (
+    !backendSettings ||
+    Math.round((backendSettings.update_check_interval_secs || 0) / 3600) !==
+      updateIntervalHours
+  ) {
+    try {
+      await invoke("set_update_check_interval", {
+        secs: updateIntervalHours * 3600,
+      });
+    } catch {
+      // ignore — 次回反映される
+    }
+  }
 }
 
 $("#refresh").addEventListener("click", refresh);
@@ -672,6 +702,141 @@ $("#resize-handle").addEventListener("mousedown", startResize);
 window.addEventListener("keydown", handleWidthShortcut);
 window.addEventListener("resize", updateDensity);
 
+// ───────── 更新通知 ─────────
+function dismissedUpdateVersion() {
+  try {
+    return localStorage.getItem(UPDATE_DISMISSED_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function showUpdateBanner(info, force = false) {
+  if (!info || !info.available) return;
+  // 一度「閉じる」した版は再表示しない (新しい版が出れば再び出る)。
+  // ただし手動チェック (force) では明示要求なので無視して表示する。
+  if (!force && info.latest === dismissedUpdateVersion()) return;
+  const banner = $("#update-banner");
+  const versionEl = $("#update-version");
+  if (!banner || !versionEl) return;
+  versionEl.textContent = "v" + info.latest;
+  banner.hidden = false;
+}
+
+function dismissUpdateBanner() {
+  const banner = $("#update-banner");
+  const version = $("#update-version");
+  if (banner) banner.hidden = true;
+  try {
+    if (version && version.textContent) {
+      localStorage.setItem(
+        UPDATE_DISMISSED_KEY,
+        version.textContent.replace(/^v/, "")
+      );
+    }
+  } catch {
+    // ignore
+  }
+}
+
+async function openReleasePage() {
+  try {
+    await invoke("open_release_page");
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function clampUpdateIntervalHours(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_UPDATE_INTERVAL_HOURS;
+  return Math.min(
+    UPDATE_INTERVAL_HOURS_MAX,
+    Math.max(UPDATE_INTERVAL_HOURS_MIN, Math.round(n))
+  );
+}
+
+function loadStoredUpdateIntervalHours() {
+  try {
+    const raw = localStorage.getItem(UPDATE_INTERVAL_HOURS_KEY);
+    if (raw === null) return null;
+    return clampUpdateIntervalHours(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function applyUpdateInterval(hours) {
+  updateIntervalHours = clampUpdateIntervalHours(hours);
+  const input = $("#update-interval-input");
+  if (input && document.activeElement !== input) {
+    input.value = updateIntervalHours;
+  }
+  try {
+    localStorage.setItem(UPDATE_INTERVAL_HOURS_KEY, String(updateIntervalHours));
+  } catch {
+    // ignore
+  }
+  try {
+    await invoke("set_update_check_interval", {
+      secs: updateIntervalHours * 3600,
+    });
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function setUpdateStatus(text) {
+  const el = $("#update-check-status");
+  if (el) el.textContent = text;
+}
+
+async function checkUpdateNow() {
+  const btn = $("#update-check-now");
+  if (btn) btn.disabled = true;
+  setUpdateStatus("確認中…");
+  try {
+    const info = await invoke("check_update_now");
+    if (info && info.available) {
+      setUpdateStatus("新しい版があります");
+      showUpdateBanner(info, true);
+    } else if (info) {
+      setUpdateStatus("最新版です (v" + info.current + ")");
+    } else {
+      setUpdateStatus("確認できませんでした");
+    }
+  } catch (err) {
+    console.error(err);
+    setUpdateStatus("確認に失敗しました");
+  } finally {
+    if (btn) btn.disabled = false;
+    // しばらくしたら通常ラベルに戻す
+    setTimeout(() => setUpdateStatus("アプリの更新"), 6000);
+  }
+}
+
+async function initUpdateCheck() {
+  // バックエンドが起動直後に行ったチェック結果を取りに行く。
+  // (定期チェックの結果は update-available イベントで届く)
+  try {
+    const info = await invoke("get_update_info");
+    if (info) showUpdateBanner(info);
+  } catch {
+    // 古いバックエンドなど。イベント側で拾えれば表示される。
+  }
+}
+
+$("#update-open").addEventListener("click", openReleasePage);
+$("#update-dismiss").addEventListener("click", dismissUpdateBanner);
+$("#update-interval-input").addEventListener("change", (e) => {
+  applyUpdateInterval(e.target.value);
+});
+$("#update-check-now").addEventListener("click", checkUpdateNow);
+
+listen("update-available", (event) => {
+  showUpdateBanner(event.payload);
+});
+
 listen("usage-updated", (event) => {
   render(event.payload);
 });
@@ -681,4 +846,5 @@ updateDensity();
 initTextScale();
 initPinned();
 initSettings();
+initUpdateCheck();
 $("#updated-at").textContent = "waiting for data…";

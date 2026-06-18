@@ -1,6 +1,6 @@
 [package]
 name = "token_display"
-version = "0.4.2"
+version = "0.5.0"
 description = "Claude Code plan usage indicator for menu bar / system tray"
 edition = "2021"
 rust-version = "1.77"

@@ -20,6 +20,9 @@
 - 文字サイズ調整 (0.6〜2.0×, A-/A+ 早押しボタン + 数値入力)
 - Windows は `%USERPROFILE%\.claude\.credentials.json` / `%USERPROFILE%\.codex\auth.json`、macOS は `security` CLI 経由で Keychain 読み取り
 - 表記は短い英語 (`in 2h30m` / `Mon 09:00` / `now`)
+- **更新通知** (notify only): 起動 30s 後 + 設定間隔 (既定 6h、1〜168h で変更可) ごとに GitHub Releases (`releases/latest`) を確認し、新バージョンがあればポップオーバー上部にバナー表示 → 「開く」で OS ブラウザでリリースページを開く。「×」で閉じた版は再表示しない (新版が出れば再表示)
+  - 設定パネルに「更新確認 (n 時間ごと)」と「今すぐ確認」ボタン
+  - **テスト方法**: dev ビルドで環境変数 `TOKEN_DISPLAY_FAKE_VERSION=0.0.1` を立てて起動すると、既存の公開リリース (v0.4.2 等) が「更新あり」として扱われ、通知バナー〜リリースページを開くまでの実経路を確認できる (release ビルドでは無視)
 - ナロー幅 (180 px〜) でも weekly 行は 1 行、設定パネル各行も label と入力欄が自動で折り返し
 
 ## 進行中

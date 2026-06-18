@@ -4,6 +4,7 @@ mod keychain;
 #[cfg(target_os = "macos")]
 mod macos_panel;
 mod tray;
+mod update;
 
 use api::UsageSnapshot;
 use serde::{Deserialize, Serialize};
@@ -35,6 +36,29 @@ const POPOVER_MIN_HEIGHT: f64 = 40.0;
 pub(crate) const POPOVER_DEFAULT_WIDTH: f64 = 340.0;
 pub(crate) const POPOVER_WIDTH_STEP: f64 = 24.0;
 static POLL_INTERVAL_SECS: AtomicU64 = AtomicU64::new(DEFAULT_POLL_INTERVAL_SECS);
+
+/// 更新チェック間隔 (秒)。usage ポーリングとは別系統。短すぎると GitHub の
+/// 未認証レート制限 (IP あたり 60 req/h) に触れるので最小 1 時間。
+pub const MIN_UPDATE_CHECK_INTERVAL_SECS: u64 = 3_600;
+pub const MAX_UPDATE_CHECK_INTERVAL_SECS: u64 = 7 * 24 * 3_600;
+pub const DEFAULT_UPDATE_CHECK_INTERVAL_SECS: u64 = 6 * 3_600;
+static UPDATE_CHECK_INTERVAL_SECS: AtomicU64 =
+    AtomicU64::new(DEFAULT_UPDATE_CHECK_INTERVAL_SECS);
+
+/// 更新チェック間隔の変更時にチェッカーを起こす notifier。
+static UPDATE_WAKE: OnceLock<Arc<Notify>> = OnceLock::new();
+
+fn update_wake_internal() -> &'static Arc<Notify> {
+    UPDATE_WAKE.get_or_init(|| Arc::new(Notify::new()))
+}
+
+pub fn update_wake() -> Arc<Notify> {
+    update_wake_internal().clone()
+}
+
+pub fn current_update_check_interval_secs() -> u64 {
+    UPDATE_CHECK_INTERVAL_SECS.load(Ordering::SeqCst)
+}
 
 /// トレイに表示するメトリクス。
 static TRAY_METRIC: AtomicU8 = AtomicU8::new(0); // FiveHour
@@ -128,6 +152,7 @@ pub struct Settings {
     pub provider: Provider,
     pub poll_interval_secs: u64,
     pub tray_metric: TrayMetric,
+    pub update_check_interval_secs: u64,
 }
 
 /// 全プロバイダの取得結果をまとめたもの。ポップオーバーはこの構造をそのまま受け取って描画する。
@@ -278,7 +303,19 @@ fn get_settings() -> Settings {
         provider: current_provider(),
         poll_interval_secs: POLL_INTERVAL_SECS.load(Ordering::SeqCst),
         tray_metric: current_tray_metric(),
+        update_check_interval_secs: current_update_check_interval_secs(),
     }
+}
+
+#[tauri::command]
+fn set_update_check_interval(secs: u64) -> Settings {
+    let clamped = secs.clamp(
+        MIN_UPDATE_CHECK_INTERVAL_SECS,
+        MAX_UPDATE_CHECK_INTERVAL_SECS,
+    );
+    UPDATE_CHECK_INTERVAL_SECS.store(clamped, Ordering::SeqCst);
+    update_wake_internal().notify_one();
+    get_settings()
 }
 
 #[tauri::command]
@@ -421,6 +458,10 @@ pub fn run() {
             set_provider,
             set_poll_interval,
             set_tray_metric,
+            set_update_check_interval,
+            update::get_update_info,
+            update::open_release_page,
+            update::check_update_now,
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -442,6 +483,8 @@ pub fn run() {
                 }
             }
             tray::setup(app.handle())?;
+            // アプリ自身の更新チェック (起動少し後 + 6時間ごと)。
+            update::spawn_checker(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
