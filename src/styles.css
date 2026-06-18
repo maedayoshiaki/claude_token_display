@@ -707,6 +707,8 @@ body[data-density="condensed"] .bucket--compact .bucket__resets--compact {
 }
 
 body[data-density="condensed"] .provider__error {
+  flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
   padding: 0;
   border: 0;
@@ -714,6 +716,9 @@ body[data-density="condensed"] .provider__error {
   color: var(--bar-fill-high);
   font-size: 13px;
   line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 body[data-density="minimal"] {

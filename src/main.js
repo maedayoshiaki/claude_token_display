@@ -149,6 +149,7 @@ function renderProvider(providerKey, result) {
     errorEl.hidden = false;
     errorEl.textContent =
       (result && result.message) || `${PROVIDER_LABELS[providerKey]} failed`;
+    errorEl.title = errorEl.textContent;
     return;
   }
   if (result.kind === "rate_limited") {
@@ -158,9 +159,11 @@ function renderProvider(providerKey, result) {
     errorEl.textContent = `Rate limited. ${
       s ? `Retry in ${s}s.` : "Retrying shortly."
     }`;
+    errorEl.title = errorEl.textContent;
     return;
   }
   errorEl.hidden = true;
+  errorEl.removeAttribute("title");
   body.hidden = false;
   const snapshot = result.snapshot || {};
   const heroSection = section.querySelector('[data-bucket="five_hour"]');

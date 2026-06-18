@@ -8,10 +8,10 @@ Claude Max プランと Codex (ChatGPT) プランの使用枠を、macOS のメ�
 
 [Releases](https://github.com/maedayoshiaki/claude_token_display/releases) から OS 別バイナリを取得してください。
 
-| OS | ファイル |
-|---|---|
-| macOS (Apple Silicon) | `*_aarch64.dmg` |
-| macOS (Intel)         | `*_x64.dmg` |
+| OS                    | ファイル                                          |
+| --------------------- | ------------------------------------------------- |
+| macOS (Apple Silicon) | `*_aarch64.dmg`                                   |
+| macOS (Intel)         | `*_x64.dmg`                                       |
 | Windows               | `*_x64-setup.exe` (NSIS) または `*_x64_en-US.msi` |
 
 ## 前提
@@ -24,7 +24,7 @@ Claude Max プランと Codex (ChatGPT) プランの使用枠を、macOS のメ�
 
 ## 初回起動時の注意
 
-**macOS**: 「開発元を確認できないため開けません」と出たら、Finder でアプリを右クリック → 開く → 「開く」。または `xattr -d com.apple.quarantine "/Applications/claude_token_display.app"` を一度実行。
+**macOS**: 「開発元を確認できないため開けません」と出たら、Finder でアプリを右クリック → 開く → 「開く」。または `xattr -d com.apple.quarantine "/Applications/token_display.app"` を一度実行。
 
 初回はメニューバー上で **「`/usr/bin/security` が "Claude Code-credentials" にアクセスしようとしています」** というダイアログが出ます。**「常に許可」** をクリックしてください（「許可」だと毎回出ます）。
 
