@@ -970,17 +970,21 @@ body[data-density="minimal"] .bucket__pct {
   white-space: nowrap;
 }
 
+/* 極小モードのエラーは「!」インジケータだけ。flex-grow させると
+   透明なエラー文の分まで横幅を確保してしまい余白が崩れるので、
+   グリフ幅 (1ch) に固定する */
 body[data-density="minimal"] .provider__error {
   position: relative;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   width: 1ch;
+  min-width: 1ch;
   margin: 0;
   padding: 0;
   border: 0;
   background: transparent;
   color: transparent;
   line-height: 1;
-  overflow: hidden;
+  overflow: visible;
 }
 
 body[data-density="minimal"] .provider__error::before {
