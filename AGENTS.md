@@ -89,12 +89,30 @@ git commit -m "Update app icon"
 
 `keyring` crate v3 は macOS Keychain と Windows Credential Manager の両方を抽象化するため、**同じコードで両 OS 対応** できる見込み。Linux は今回対象外（必要なら Secret Service バックエンド利用可）。
 
+### Claude Desktop フォールバック (`claude_desktop.rs`)
+
+Claude Code CLI が未ログインでも、**Claude Desktop にログイン済みなら** そのトークンを使う。`fetch_claude` は CLI keystore → Desktop の順でトークンを探す。使用枠は全サーフェス共有プールなので、取れる accessToken は同種・表示値も同じ。
+
+- 設定ファイル (Windows はインストール形態で場所が変わる。`desktop_data_dir` が `config.json` 実在の最初の候補を選ぶ):
+  - Windows 旧 .exe (NSIS/Squirrel) 版: `%APPDATA%\Claude\config.json`
+  - **Windows Microsoft Store / MSIX 版**: `%APPDATA%` がパッケージ専用フォルダにリダイレクトされ、実体は `%LOCALAPPDATA%\Packages\Claude_<publisherハッシュ>\LocalCache\Roaming\Claude\config.json` (例: `Claude_pzs8sxrjxfjjc`)。`%LOCALAPPDATA%\Packages` 配下を `Claude` 始まりで列挙して候補化する。**実機 (Store 版 v1.14271) で end-to-end 確認済み: 取得トークンで `/api/oauth/usage` が 200 を返し使用率を取得**。
+  - macOS: `~/Library/Application Support/Claude/config.json` (Mac App Store のサンドボックス版が出たら `~/Library/Containers/.../Data/...` への同種リダイレクト対応が要る — 現状は直 DL .dmg 版のみ)
+- トークンは `oauth:tokenCacheV2`（無ければ `oauth:tokenCache`）に base64。先頭 `v10` = Electron safeStorage / Chromium os_crypt（**Chrome の Cookie 暗号化と同一**。`Local State` の鍵プレフィックスは `DPAPI` で、Chrome 127+ の App-Bound Encryption ではない＝従来 DPAPI で復号可、を実機確認）。
+  - Windows: `Local State` の `os_crypt.encrypted_key`（先頭 `DPAPI`）を `CryptUnprotectData` で 32B 鍵に → AES-256-GCM（`v10`+nonce12+ct+tag16）。
+  - macOS: Keychain の generic password `"Claude Safe Storage"` を PBKDF2-HMAC-SHA1(salt="saltysalt", 1003, 16) → AES-128-CBC（IV=0x20×16, PKCS7）。
+- 復号後の平文 JSON 形 (実機 Windows で確認済み):
+  - `oauth:tokenCacheV2` は **エントリのマップ**。キーは `"<clientId>:<orgId>:<audience>:<scopes>"`、値は `{ "token": "sk-ant-...", "refreshToken": ..., "expiresAt": <ms>, "subscriptionType": ..., "rateLimitTier": ... }`。**アクセストークンのフィールド名は `accessToken` ではなく `token`**。複数クライアント (例: Claude Code の `9d1c250a-...` と Desktop 自身) のエントリが並ぶことがある。
+  - 旧 `oauth:tokenCache` / `.credentials.json` は `{ "claudeAiOauth": { "accessToken": ... } }`。
+  - パーサ ([`parse_access_token`]) は `claudeAiOauth.accessToken` → 直下 `accessToken` → V2 マップ (`api.anthropic.com` + `user:profile` かつ未期限切れ・期限が新しいエントリの `token`) → 再帰探索 → 素の `sk-ant-...` の順で寛容に取り出す。
+
 ### 既知の制約 / リスク
 
 1. **API は非公開仕様**。Anthropic が変更すれば壊れる。
-2. **Keychain ダイアログ**: 初回起動時に macOS が「token_display が "Claude Code-credentials" にアクセスしようとしています」とダイアログを出す。「常に許可」しないと毎回出る。
-3. **トークン有効期限**: access_token が切れたら 401 が返る。本実装は refresh_token を使った更新を行っていない（Claude Code 本体に再ログインしてもらう想定）。
-4. **rate limit**: 同 API への過剰アクセスは 429 になる可能性。我々は 5分ポーリングなので問題ない想定。
+2. **Keychain ダイアログ**: 初回起動時に macOS が「token_display が "Claude Code-credentials" にアクセスしようとしています」とダイアログを出す。「常に許可」しないと毎回出る。Desktop フォールバック時は `"Claude Safe Storage"` でも同様のダイアログが出る。
+3. **トークン有効期限**: access_token が切れたら 401 が返る。本実装は refresh_token を使った更新を行っていない（毎ポーリングでディスクから読み直すので、CLI/Desktop 本体が更新したトークンは自動で拾う）。
+   - **書き換え中の窓**: Claude Code / Desktop はトークン更新時に credential ファイルを削除→再作成で書き換える。その一瞬に読みに行くと `NotFound` / 部分書き込みでのパース・復号失敗になり、失敗が次ポーリング (5分) までキャッシュされて「ログインが見つからない」が出続ける。対策として `read_with_retry` (lib.rs) で NotFound / Decode / Decrypt を transient とみなし 50ms×3 リトライする (CLI・Desktop 両経路に適用)。
+4. **rate limit**: 同 API への過剰アクセスは 429 になる可能性。`/api/oauth/usage` は `User-Agent: claude-code/<ver>` が無いと積極的に 429 になるため付与している。5分ポーリングは問題ない想定。
+5. **規約 (ToS) のグレー**: Anthropic は消費者 OAuth トークンの第三者ツール利用を「Claude Code / claude.ai 以外は不可」と明文化（2026/2、credential 基準・read-only 免除なし）。ただし実摘発は推論アービトラージ（opencode/OpenClaw 等）が対象で、read-only 使用量モニタの BAN 事例は確認されていない。Desktop トークンは現行 CLI トークンと同クラスのため追加リスクはほぼ無い。claude.ai Cookie 経路は scraping 条項が上乗せされ A より重いので**採用しない**。
 
 ## よく使うコマンド
 

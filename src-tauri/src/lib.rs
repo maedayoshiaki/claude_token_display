@@ -1,4 +1,5 @@
 mod api;
+mod claude_desktop;
 mod codex;
 mod keychain;
 #[cfg(target_os = "macos")]
@@ -391,13 +392,68 @@ pub async fn fetch_usage_inner(provider: Provider) -> FetchResult {
     }
 }
 
+/// Claude のトークンを取得する。Claude Code CLI の保存先を優先し、無ければ
+/// Claude Desktop の保存先にフォールバックする (どちらも同種の subscription
+/// OAuth トークンで、使用枠は共有プールなので同じ数字が得られる)。
+fn read_claude_token() -> Result<String, String> {
+    let cli_err = match keychain::read_access_token() {
+        Ok(token) => return Ok(token),
+        Err(e) => e,
+    };
+    match claude_desktop::read_access_token() {
+        Ok(token) => Ok(token),
+        Err(desktop_err) => Err(combine_claude_token_errors(&cli_err, &desktop_err)),
+    }
+}
+
+/// クレデンシャルファイル (Claude Code の `.credentials.json` / Claude Desktop の
+/// `config.json`) は各アプリがトークン更新時に書き換える。その「削除→再作成」や
+/// 部分書き込みの一瞬に読みに行くと NotFound / パース失敗になりうるので、それらは
+/// transient とみなして短い間隔で数回だけリトライする。恒久的な失敗 (未ログイン等)
+/// は `is_transient` が false を返すので即座に返る。
+pub(crate) const CREDENTIAL_READ_RETRIES: usize = 3;
+pub(crate) const CREDENTIAL_READ_RETRY_DELAY_MS: u64 = 50;
+
+pub(crate) fn read_with_retry<T, E>(
+    mut read: impl FnMut() -> Result<T, E>,
+    is_transient: impl Fn(&E) -> bool,
+) -> Result<T, E> {
+    let mut attempt = 0;
+    loop {
+        match read() {
+            Ok(value) => return Ok(value),
+            Err(e) if attempt < CREDENTIAL_READ_RETRIES && is_transient(&e) => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(
+                    CREDENTIAL_READ_RETRY_DELAY_MS,
+                ));
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+/// 両方の取得元が失敗したときのメッセージ。どちらも「未ログイン」なら 1 行で案内し、
+/// それ以外 (アクセス拒否・復号失敗等) は診断用に両方を出す。
+fn combine_claude_token_errors(
+    cli: &keychain::KeychainError,
+    desktop: &claude_desktop::DesktopError,
+) -> String {
+    let cli_missing = matches!(cli, keychain::KeychainError::NotFound);
+    let desktop_missing = matches!(desktop, claude_desktop::DesktopError::NotFound);
+    if cli_missing && desktop_missing {
+        return "No Claude login found. Log in via the `claude` CLI or Claude Desktop.".to_string();
+    }
+    format!("Claude Code: {cli} / Claude Desktop: {desktop}")
+}
+
 async fn fetch_claude() -> FetchResult {
-    let token = match keychain::read_access_token() {
+    let token = match read_claude_token() {
         Ok(t) => t,
-        Err(e) => {
+        Err(message) => {
             return FetchResult::Err {
                 provider: Provider::Claude,
-                message: e.to_string(),
+                message,
             }
         }
     };
@@ -532,6 +588,76 @@ mod tests {
     #[test]
     fn focus_loss_is_not_ignored_after_grace_and_suppression() {
         assert!(!focus_loss_should_be_ignored(false, 1_000, 1_500, 2_000));
+    }
+
+    #[test]
+    fn retry_succeeds_after_transient_failures() {
+        use std::cell::Cell;
+        let calls = Cell::new(0);
+        let result: Result<u8, u8> = read_with_retry(
+            || {
+                let n = calls.get();
+                calls.set(n + 1);
+                if n < 2 {
+                    Err(1)
+                } else {
+                    Ok(7)
+                }
+            },
+            |_| true,
+        );
+        assert_eq!(result, Ok(7));
+        assert_eq!(calls.get(), 3);
+    }
+
+    #[test]
+    fn retry_returns_immediately_on_non_transient() {
+        use std::cell::Cell;
+        let calls = Cell::new(0);
+        let result: Result<u8, u8> = read_with_retry(
+            || {
+                calls.set(calls.get() + 1);
+                Err(9)
+            },
+            |_| false,
+        );
+        assert_eq!(result, Err(9));
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn retry_gives_up_after_max_attempts() {
+        use std::cell::Cell;
+        let calls = Cell::new(0);
+        let result: Result<u8, u8> = read_with_retry(
+            || {
+                calls.set(calls.get() + 1);
+                Err(5)
+            },
+            |_| true,
+        );
+        assert_eq!(result, Err(5));
+        assert_eq!(calls.get(), CREDENTIAL_READ_RETRIES + 1);
+    }
+
+    #[test]
+    fn both_sources_missing_gives_single_line_hint() {
+        let msg = combine_claude_token_errors(
+            &keychain::KeychainError::NotFound,
+            &claude_desktop::DesktopError::NotFound,
+        );
+        assert!(msg.contains("claude") || msg.contains("Claude"));
+        assert!(!msg.contains("Claude Code:"), "should be the friendly hint, not the diagnostic form");
+    }
+
+    #[test]
+    fn non_missing_error_surfaces_both_sources() {
+        let msg = combine_claude_token_errors(
+            &keychain::KeychainError::Decode("bad json".into()),
+            &claude_desktop::DesktopError::NotFound,
+        );
+        assert!(msg.contains("Claude Code:"));
+        assert!(msg.contains("Claude Desktop:"));
     }
 
     #[test]

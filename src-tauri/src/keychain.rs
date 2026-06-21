@@ -44,6 +44,12 @@ struct OAuth {
 }
 
 pub fn read_access_token() -> Result<String, KeychainError> {
+    // Claude Code がトークン更新時に `.credentials.json` を書き換える瞬間に当たると
+    // NotFound / パース失敗になりうるので transient リトライする。
+    crate::read_with_retry(read_access_token_once, is_transient)
+}
+
+fn read_access_token_once() -> Result<String, KeychainError> {
     let raw = read_raw()?;
     let payload: Payload =
         serde_json::from_str(&raw).map_err(|e| KeychainError::Decode(e.to_string()))?;
@@ -52,6 +58,10 @@ pub fn read_access_token() -> Result<String, KeychainError> {
         .and_then(|o| o.access_token)
         .filter(|t| !t.is_empty())
         .ok_or(KeychainError::EmptyToken)
+}
+
+fn is_transient(e: &KeychainError) -> bool {
+    matches!(e, KeychainError::NotFound | KeychainError::Decode(_))
 }
 
 #[cfg(target_os = "macos")]

@@ -10,6 +10,11 @@ use serde::{Deserialize, Serialize};
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const BETA_HEADER: &str = "oauth-2025-04-20";
 
+/// `/api/oauth/usage` は `claude-code/<version>` を名乗る User-Agent でないと
+/// 攻撃的にレート制限 (429) される積極バケットに入れられる (read-only 用途)。
+/// Claude Code 本体のバージョン更新に追従して適宜上げる。
+const CLAUDE_CODE_USER_AGENT: &str = "claude-code/2.1.37";
+
 #[derive(thiserror::Error, Debug)]
 pub enum ApiError {
     #[error("network error: {0}")]
@@ -124,6 +129,7 @@ pub async fn fetch_usage(access_token: &str) -> Result<UsageSnapshot, ApiError> 
         .get(USAGE_URL)
         .bearer_auth(access_token)
         .header("anthropic-beta", BETA_HEADER)
+        .header("user-agent", CLAUDE_CODE_USER_AGENT)
         .send()
         .await
         .map_err(|e| ApiError::Network(e.to_string()))?;
