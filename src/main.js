@@ -150,7 +150,8 @@ function renderProvider(providerKey, result) {
   const body = section.querySelector("[data-body]");
   const errorEl = section.querySelector("[data-error]");
 
-  if (!result || result.kind === "err") {
+  // err と credential_restricted (403) はどちらも message をそのまま表示する。
+  if (!result || result.kind === "err" || result.kind === "credential_restricted") {
     body.hidden = true;
     errorEl.hidden = false;
     errorEl.textContent =

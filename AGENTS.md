@@ -112,7 +112,8 @@ Claude Code CLI が未ログインでも、**Claude Desktop にログイン済�
 3. **トークン有効期限**: access_token が切れたら 401 が返る。本実装は refresh_token を使った更新を行っていない（毎ポーリングでディスクから読み直すので、CLI/Desktop 本体が更新したトークンは自動で拾う）。
    - **書き換え中の窓**: Claude Code / Desktop はトークン更新時に credential ファイルを削除→再作成で書き換える。その一瞬に読みに行くと `NotFound` / 部分書き込みでのパース・復号失敗になり、失敗が次ポーリング (5分) までキャッシュされて「ログインが見つからない」が出続ける。対策として `read_with_retry` (lib.rs) で NotFound / Decode / Decrypt を transient とみなし 50ms×3 リトライする (CLI・Desktop 両経路に適用)。
 4. **rate limit**: 同 API への過剰アクセスは 429 になる可能性。`/api/oauth/usage` は `User-Agent: claude-code/<ver>` が無いと積極的に 429 になるため付与している。5分ポーリングは問題ない想定。
-5. **規約 (ToS) のグレー**: Anthropic は消費者 OAuth トークンの第三者ツール利用を「Claude Code / claude.ai 以外は不可」と明文化（2026/2、credential 基準・read-only 免除なし）。ただし実摘発は推論アービトラージ（opencode/OpenClaw 等）が対象で、read-only 使用量モニタの BAN 事例は確認されていない。Desktop トークンは現行 CLI トークンと同クラスのため追加リスクはほぼ無い。claude.ai Cookie 経路は scraping 条項が上乗せされ A より重いので**採用しない**。
+   - **403 (credential restricted)**: usage API がこの資格情報を許可しない場合 403 を返す。`api.rs` で専用エラー (`ApiError::CredentialRestricted` → `FetchResult::CredentialRestricted`) にし、生の `HTTP 403` ではなく「何が起きたか・どうすべきか」を表示する。待っても直らない恒久ブロックなので `tray.rs` で **30 分以上にバックオフ** (通常エラーの 60s 高速リトライをしない)。再ログインや方針変更での復帰を拾えるよう停止はしない。
+5. **規約 (ToS)**: グレーではなく **明確な規約違反**。Anthropic の消費者向け規約は、Pro/Max の OAuth トークン (CLI / Desktop 由来) を Claude Code / claude.ai 以外のツールで使うことを禁止している (credential 基準、**read-only の免除条項は無い**)。タイムライン: **2026/1/9** 推論クライアントのサーバ側ブロック開始 → **2026/2** 消費者規約に明文化 → **2026/4/4**「サブスクは第三者ツールをカバーしない」課金変更。実際の摘発は推論アービトラージ (opencode/OpenClaw 等) が対象で、read-only 使用量モニタの BAN 事例は今のところ無い ＝ **「免除」ではなく「規約違反だが現状未摘発」**。Desktop トークンは現行 CLI トークンと同クラス・同エンドポイントなので追加の規約リスクは増えない。現実的な最大リスクは BAN ではなく**機能停止** (Anthropic が usage 系にも credential 制限を広げると 403 で表示不可)。claude.ai Cookie 経路は scraping 条項が上乗せで重く、表示値も同じため**採用しない**。
 
 ## よく使うコマンド
 

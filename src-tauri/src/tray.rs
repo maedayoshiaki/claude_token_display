@@ -234,6 +234,11 @@ fn set_popover_width<R: Runtime>(app: &AppHandle<R>, width: f64) {
     let _ = resize_popover_width(&window, width);
 }
 
+/// 403 (credential restricted) は待っても直らない恒久ブロックなので、通常エラーの
+/// 高速リトライ (MIN_POLL_INTERVAL_SECS) ではなく長めにバックオフする。再ログインや
+/// Anthropic 側の方針変更で解消する可能性は残すため、停止ではなく低頻度ポーリング。
+const CREDENTIAL_RESTRICTED_BACKOFF_SECS: u64 = 30 * 60;
+
 fn decide_sleep(r: &FetchResult, configured_interval: u64) -> u64 {
     let normal = configured_interval.max(MIN_POLL_INTERVAL_SECS);
     match r {
@@ -243,6 +248,9 @@ fn decide_sleep(r: &FetchResult, configured_interval: u64) -> u64 {
             .map(|s| s + 5)
             .unwrap_or(normal)
             .max(MIN_POLL_INTERVAL_SECS),
+        FetchResult::CredentialRestricted { .. } => {
+            configured_interval.max(CREDENTIAL_RESTRICTED_BACKOFF_SECS)
+        }
         FetchResult::Err { .. } => MIN_POLL_INTERVAL_SECS,
         FetchResult::Ok { .. } => normal,
     }
@@ -294,7 +302,7 @@ fn short_status(r: &FetchResult, metric: TrayMetric) -> String {
             }
         }
         FetchResult::RateLimited { .. } => "…".to_string(),
-        FetchResult::Err { .. } => "!".to_string(),
+        FetchResult::CredentialRestricted { .. } | FetchResult::Err { .. } => "!".to_string(),
     }
 }
 
@@ -321,7 +329,9 @@ fn provider_tooltip_line(provider: Provider, r: &FetchResult) -> String {
             let s = retry_after_secs.unwrap_or(0);
             format!("{}: rate limited (retry {}s)", name, s)
         }
-        FetchResult::Err { message, .. } => format!("{}: {}", name, message),
+        FetchResult::CredentialRestricted { message, .. } | FetchResult::Err { message, .. } => {
+            format!("{}: {}", name, message)
+        }
     }
 }
 
@@ -614,6 +624,36 @@ mod tests {
             },
         };
         assert_eq!(format_dual_title(&all), "!");
+    }
+
+    #[test]
+    fn decide_sleep_backs_off_on_credential_restricted() {
+        let r = FetchResult::CredentialRestricted {
+            provider: Provider::Claude,
+            message: "blocked".into(),
+        };
+        // 設定 5 分でも credential 制限時は最低 30 分にバックオフ (高速リトライしない)
+        assert_eq!(decide_sleep(&r, 300), CREDENTIAL_RESTRICTED_BACKOFF_SECS);
+        // 設定がバックオフより長ければ設定値を尊重
+        assert_eq!(decide_sleep(&r, 60 * 60), 60 * 60);
+    }
+
+    #[test]
+    fn credential_restricted_marks_title_with_bang() {
+        let all = AllUsage {
+            claude: FetchResult::CredentialRestricted {
+                provider: Provider::Claude,
+                message: "blocked".into(),
+            },
+            codex: FetchResult::Ok {
+                provider: Provider::Codex,
+                snapshot: UsageSnapshot {
+                    five_hour: Some(b(0.30)),
+                    ..UsageSnapshot::default()
+                },
+            },
+        };
+        assert_eq!(format_dual_title(&all), "C ! · X 30%");
     }
 
     #[test]

@@ -131,6 +131,11 @@ pub enum FetchResult {
         provider: Provider,
         retry_after_secs: Option<u64>,
     },
+    /// 403。トークンは有効だがこの資格情報では usage API が許可されていない (恒久ブロック)。
+    CredentialRestricted {
+        provider: Provider,
+        message: String,
+    },
     Err {
         provider: Provider,
         message: String,
@@ -142,6 +147,7 @@ impl FetchResult {
         match self {
             FetchResult::Ok { provider, .. }
             | FetchResult::RateLimited { provider, .. }
+            | FetchResult::CredentialRestricted { provider, .. }
             | FetchResult::Err { provider, .. } => *provider,
         }
     }
@@ -465,6 +471,10 @@ async fn fetch_claude() -> FetchResult {
         Err(api::ApiError::RateLimited { retry_after_secs }) => FetchResult::RateLimited {
             provider: Provider::Claude,
             retry_after_secs,
+        },
+        Err(api::ApiError::CredentialRestricted { message }) => FetchResult::CredentialRestricted {
+            provider: Provider::Claude,
+            message,
         },
         Err(e) => FetchResult::Err {
             provider: Provider::Claude,
