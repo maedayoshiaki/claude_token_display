@@ -1,0 +1,48 @@
+/* 設定ウィンドウ専用のスタイル。
+   styles.css の :root 変数 / テーマ / .settings__* を再利用し、ここでは
+   通常ウィンドウとしての見た目 (不透明背景・スクロール) だけを上書きする。 */
+
+html,
+body {
+  background: var(--bg);
+  color: var(--fg);
+  height: 100%;
+  overflow: auto;
+}
+
+body {
+  padding: 0;
+}
+
+.settings-window {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px 18px;
+  min-height: 100%;
+}
+
+/* このウィンドウでは各セクションを常に縦並びで全表示する
+   (popover の折りたたみ/density ルールは適用しない)。 */
+.settings-window .settings {
+  display: flex;
+  max-height: none;
+  margin-bottom: 0;
+}
+
+.settings-window .settings__row--note {
+  justify-content: flex-end;
+  min-height: 0;
+}
+
+.settings__link {
+  color: #0a84ff;
+  cursor: pointer;
+  font-size: calc(11px * var(--text-scale));
+}
+.settings__link:hover {
+  text-decoration: underline;
+}
+.settings__link[hidden] {
+  display: none;
+}

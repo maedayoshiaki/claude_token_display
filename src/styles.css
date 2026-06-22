@@ -13,8 +13,10 @@
   --window-shadow: 0 2px 7px rgba(0, 0, 0, 0.18);
 }
 
+/* テーマ未指定 or "auto" のときだけ OS の配色に追従する。
+   data-theme="light"/"dark" を documentElement に付けると手動上書きになる。 */
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme="dark"]):not([data-theme="light"]) {
     --bg: #ffffff;
     --fg: #1d1d1f;
     --fg-dim: #6e6e73;
@@ -23,6 +25,19 @@
     --window-shadow: 0 2px 7px rgba(0, 0, 0, 0.12);
   }
 }
+
+/* 手動ライトテーマ (OS がダークでもライトにする) */
+:root[data-theme="light"] {
+  --bg: #ffffff;
+  --fg: #1d1d1f;
+  --fg-dim: #6e6e73;
+  --bar-bg: rgba(0, 0, 0, 0.08);
+  --divider: rgba(0, 0, 0, 0.08);
+  --window-shadow: 0 2px 7px rgba(0, 0, 0, 0.12);
+}
+
+/* 手動ダークテーマは :root の既定値 (ダーク) をそのまま使う。
+   data-theme="dark" のとき上の @media が無効化されるので OS がライトでもダークになる。 */
 
 * {
   box-sizing: border-box;
@@ -103,10 +118,42 @@ body {
   color: var(--fg);
 }
 
-/* 極小モードでは更新バナーは場所を取りすぎるので隠す */
+/* 極小モードでは更新バナーは場所を取りすぎるので隠す。
+   代わりに右端の小さな「更新マーク」(.update-mark) で「更新あり」を示す。 */
 body[data-density="minimal"] .update-banner,
 body[data-density="condensed"] .update-banner {
   display: none;
+}
+
+/* 更新マーク: banner を隠す condensed/minimal で「更新あり」を示す小さなタブ。
+   クリックでリリースページを開く。表示可否は body[data-update-available] × density で制御。 */
+.update-mark {
+  display: none;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px 0 0 4px;
+  background: #0a84ff;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.update-mark:hover {
+  background: #0a74e0;
+}
+body[data-update-available="true"][data-density="condensed"] .update-mark {
+  display: inline-flex;
+  min-width: 18px;
+  width: 18px;
+  height: 22px;
+}
+body[data-update-available="true"][data-density="minimal"] .update-mark {
+  display: inline-flex;
+  min-width: 16px;
+  width: 16px;
+  height: 20px;
 }
 
 .card__header {
@@ -636,14 +683,36 @@ body[data-density="condensed"] .card__header {
 
 body[data-density="condensed"] .header-actions {
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   width: auto;
   margin-left: 0;
-  gap: 0;
+  gap: 1px;
 }
 
+/* refresh / settings は平常は隠し、card を hover / フォーカスしたときだけ
+   右端に小さく展開する (小窓でも押せるように)。 */
 body[data-density="condensed"] #settings,
 body[data-density="condensed"] #refresh {
-  display: none !important;
+  display: none;
+}
+
+body[data-density="condensed"] .card:hover #settings,
+body[data-density="condensed"] .card:hover #refresh,
+body[data-density="condensed"] .card:focus-within #settings,
+body[data-density="condensed"] .card:focus-within #refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  width: 18px;
+  height: 22px;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+  border-radius: 4px 0 0 4px;
+  background: var(--bg);
+  color: var(--fg-dim);
 }
 
 body[data-density="condensed"] #pin {
@@ -802,14 +871,36 @@ body[data-density="minimal"] .card__header {
 
 body[data-density="minimal"] .header-actions {
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   width: auto;
   margin-left: 0;
-  gap: 0;
+  gap: 1px;
 }
 
+/* refresh / settings は平常は隠し、card を hover / フォーカスしたときだけ
+   右端に小さく展開する (小窓でも押せるように)。 */
 body[data-density="minimal"] #settings,
 body[data-density="minimal"] #refresh {
-  display: none !important;
+  display: none;
+}
+
+body[data-density="minimal"] .card:hover #settings,
+body[data-density="minimal"] .card:hover #refresh,
+body[data-density="minimal"] .card:focus-within #settings,
+body[data-density="minimal"] .card:focus-within #refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  width: 16px;
+  height: 20px;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1;
+  border-radius: 4px 0 0 4px;
+  background: var(--bg);
+  color: var(--fg-dim);
 }
 
 body[data-density="minimal"] #pin {

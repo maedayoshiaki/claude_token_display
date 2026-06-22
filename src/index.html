@@ -15,93 +15,12 @@
       </div>
       <header class="card__header">
         <div class="header-actions header-actions--right">
+          <button id="update-mark" class="update-mark" type="button" title="新しいバージョンが利用可能です（クリックで開く）" aria-label="更新あり">↑</button>
           <button id="pin" class="icon-btn icon-btn--pin-glyph" title="固定表示" aria-label="固定表示" aria-pressed="false">📌&#xFE0E;</button>
           <button id="settings" class="icon-btn" title="設定" aria-label="設定" aria-pressed="false">⚙</button>
           <button id="refresh" class="icon-btn" title="Refresh" aria-label="Refresh">⟳</button>
         </div>
       </header>
-
-      <section id="settings-panel" class="settings" hidden>
-        <div class="settings__section-title">表示する項目</div>
-        <label class="settings__row">
-          <span class="settings__label">Claude</span>
-          <input id="claude-toggle" type="checkbox" class="settings__control settings__control--check" />
-        </label>
-        <label class="settings__row">
-          <span class="settings__label">Codex</span>
-          <input id="codex-toggle" type="checkbox" class="settings__control settings__control--check" />
-        </label>
-        <label class="settings__row">
-          <span class="settings__label">5h バー</span>
-          <input id="bar-toggle" type="checkbox" class="settings__control settings__control--check" />
-        </label>
-        <label class="settings__row">
-          <span class="settings__label">週間使用率</span>
-          <input id="weekly-toggle" type="checkbox" class="settings__control settings__control--check" />
-        </label>
-        <label class="settings__row">
-          <span class="settings__label">Sonnet 週間</span>
-          <input id="sonnet-toggle" type="checkbox" class="settings__control settings__control--check" />
-        </label>
-        <label class="settings__row">
-          <span class="settings__label">リセット時刻</span>
-          <input id="resets-toggle" type="checkbox" class="settings__control settings__control--check" />
-        </label>
-        <div class="settings__divider"></div>
-        <div class="settings__section-title">基本設定</div>
-        <label class="settings__row">
-          <span class="settings__label">更新間隔</span>
-          <span class="settings__inline">
-            <input id="interval-input" class="settings__control settings__control--num" type="number" min="1" max="60" step="1" />
-            <span class="settings__suffix">分</span>
-          </span>
-        </label>
-        <label class="settings__row">
-          <span class="settings__label">更新確認</span>
-          <span class="settings__inline">
-            <input id="update-interval-input" class="settings__control settings__control--num" type="number" min="1" max="168" step="1" />
-            <span class="settings__suffix">時間ごと</span>
-          </span>
-        </label>
-        <div class="settings__row">
-          <span class="settings__label" id="update-check-status">アプリの更新</span>
-          <button id="update-check-now" class="icon-btn icon-btn--small" type="button" title="今すぐ更新を確認">今すぐ確認</button>
-        </div>
-        <label class="settings__row">
-          <span class="settings__label">文字サイズ</span>
-          <span class="settings__inline">
-            <button id="font-smaller" class="icon-btn icon-btn--small" title="文字を小さく" aria-label="文字を小さく" type="button">A-</button>
-            <button id="font-larger" class="icon-btn icon-btn--small" title="文字を大きく" aria-label="文字を大きく" type="button">A+</button>
-            <input id="scale-input" class="settings__control settings__control--num" type="number" min="0.6" max="2.0" step="0.05" />
-            <span class="settings__suffix">×</span>
-          </span>
-        </label>
-        <label class="settings__row">
-          <span class="settings__label">横幅</span>
-          <span class="settings__inline">
-            <button id="width-narrower" class="icon-btn icon-btn--small" title="横幅を狭く" aria-label="横幅を狭く" type="button">W-</button>
-            <button id="width-wider" class="icon-btn icon-btn--small" title="横幅を広く" aria-label="横幅を広く" type="button">W+</button>
-          </span>
-        </label>
-        <div class="settings__divider"></div>
-        <div class="settings__section-title">小さいモード</div>
-        <label class="settings__row">
-          <span class="settings__label">トレイ表示</span>
-          <select id="tray-metric-select" class="settings__control">
-            <option value="five_hour">5h セッション</option>
-            <option value="weekly">週間</option>
-          </select>
-        </label>
-        <label class="settings__row">
-          <span class="settings__label">極小ウィンドウ</span>
-          <select id="mini-metric-select" class="settings__control">
-            <option value="five_hour">5h セッション</option>
-            <option value="weekly">週間</option>
-            <option value="both">両方</option>
-          </select>
-        </label>
-      </section>
-      <div id="preview-label" class="preview-label" hidden>▾ プレビュー</div>
 
       <div id="content">
         <section class="provider" data-provider="claude">

@@ -18,6 +18,8 @@ const TRAY_METRIC_KEY = "token_display_tray_metric";
 const MINI_METRIC_KEY = "token_display_mini_metric";
 const UPDATE_DISMISSED_KEY = "token_display_update_dismissed";
 const UPDATE_INTERVAL_HOURS_KEY = "token_display_update_interval_hours";
+const THEME_KEY = "token_display_theme";
+const UPDATE_NOTIFY_KEY = "token_display_update_notify";
 
 const TEXT_SCALE_MIN = 0.6;
 const TEXT_SCALE_MAX = 2.0;
@@ -55,7 +57,10 @@ let showResets = true;
 let trayMetric = "five_hour";
 let miniMetric = "five_hour";
 let updateIntervalHours = DEFAULT_UPDATE_INTERVAL_HOURS;
+let theme = "auto";
+let updateNotify = true; // アプリ更新通知 (バナー/マーク) の有効/無効
 let lastAllUsage = null; // 最後に描画した payload (トグル反映の再描画に使う)
+let latestUpdateInfo = null; // 直近の更新情報 (バナー / マーク / data-update-available の単一ソース)
 let currentDensity = "";
 let currentDensityResets = "";
 
@@ -276,15 +281,6 @@ function renderTextScale(scale) {
   }
 }
 
-function setTextScale(scale) {
-  renderTextScale(scale);
-  try {
-    localStorage.setItem(TEXT_SCALE_KEY, textScale.toFixed(2));
-  } catch {
-    // localStorage が使えない環境では現在のセッションだけ反映する。
-  }
-}
-
 function initTextScale() {
   try {
     renderTextScale(parseFloat(localStorage.getItem(TEXT_SCALE_KEY) || "1"));
@@ -331,30 +327,6 @@ function loadStoredBarVisible() {
   return true;
 }
 
-function saveIntervalMin(min) {
-  try {
-    localStorage.setItem(INTERVAL_MIN_KEY, String(min));
-  } catch {
-    // ignore
-  }
-}
-
-function saveSonnetVisible(visible) {
-  try {
-    localStorage.setItem(SONNET_VISIBLE_KEY, visible ? "1" : "0");
-  } catch {
-    // ignore
-  }
-}
-
-function saveBarVisible(visible) {
-  try {
-    localStorage.setItem(BAR_VISIBLE_KEY, visible ? "1" : "0");
-  } catch {
-    // ignore
-  }
-}
-
 function loadStoredBool(key) {
   try {
     const v = localStorage.getItem(key);
@@ -364,86 +336,6 @@ function loadStoredBool(key) {
     // ignore
   }
   return true;
-}
-
-function saveBool(key, value) {
-  try {
-    localStorage.setItem(key, value ? "1" : "0");
-  } catch {
-    // ignore
-  }
-}
-
-async function applyInterval(min) {
-  currentIntervalMin = clampIntervalMin(min);
-  const input = $("#interval-input");
-  if (input && document.activeElement !== input) {
-    input.value = currentIntervalMin;
-  }
-  saveIntervalMin(currentIntervalMin);
-  try {
-    await invoke("set_poll_interval", { secs: currentIntervalMin * 60 });
-  } catch (err) {
-    console.error(err);
-  }
-}
-
-function applySonnetVisible(visible) {
-  showSonnet = !!visible;
-  $("#sonnet-toggle").checked = showSonnet;
-  saveSonnetVisible(showSonnet);
-  rerender();
-}
-
-function applyBarVisible(visible) {
-  showBar = !!visible;
-  $("#bar-toggle").checked = showBar;
-  document.body.dataset.showBar = String(showBar);
-  saveBarVisible(showBar);
-}
-
-function applyClaudeVisible(visible) {
-  showClaude = !!visible;
-  $("#claude-toggle").checked = showClaude;
-  document.body.dataset.showClaude = String(showClaude);
-  saveBool(CLAUDE_VISIBLE_KEY, showClaude);
-}
-
-function applyCodexVisible(visible) {
-  showCodex = !!visible;
-  $("#codex-toggle").checked = showCodex;
-  document.body.dataset.showCodex = String(showCodex);
-  saveBool(CODEX_VISIBLE_KEY, showCodex);
-}
-
-function applyWeeklyVisible(visible) {
-  showWeekly = !!visible;
-  $("#weekly-toggle").checked = showWeekly;
-  document.body.dataset.showWeekly = String(showWeekly);
-  saveBool(WEEKLY_VISIBLE_KEY, showWeekly);
-}
-
-function applyResetsVisible(visible) {
-  showResets = !!visible;
-  $("#resets-toggle").checked = showResets;
-  document.body.dataset.showResets = String(showResets);
-  saveBool(RESETS_VISIBLE_KEY, showResets);
-}
-
-async function applyTrayMetric(metric) {
-  trayMetric = metric;
-  const sel = $("#tray-metric-select");
-  if (sel) sel.value = trayMetric;
-  try { localStorage.setItem(TRAY_METRIC_KEY, trayMetric); } catch {}
-  try { await invoke("set_tray_metric", { metric: trayMetric }); } catch (e) { console.error(e); }
-}
-
-function applyMiniMetric(metric) {
-  miniMetric = metric;
-  const sel = $("#mini-metric-select");
-  if (sel) sel.value = miniMetric;
-  document.body.dataset.miniMetric = miniMetric;
-  try { localStorage.setItem(MINI_METRIC_KEY, miniMetric); } catch {}
 }
 
 async function setPinned(pinned) {
@@ -480,15 +372,13 @@ async function refresh() {
   }
 }
 
-function toggleSettings() {
-  const panel = $("#settings-panel");
-  const btn = $("#settings");
-  const preview = $("#preview-label");
-  if (!panel || !btn) return;
-  const open = panel.hidden;
-  panel.hidden = !open;
-  if (preview) preview.hidden = !open;
-  btn.setAttribute("aria-pressed", String(open));
+// 設定は別ウィンドウ。⚙ ボタンでそのウィンドウを開く (バックエンドが show + focus)。
+async function openSettingsWindow() {
+  try {
+    await invoke("open_settings_window");
+  } catch (err) {
+    console.error(err);
+  }
 }
 
 function startPinnedDrag(event) {
@@ -562,6 +452,69 @@ function recoverWidthFromMinimal(event) {
   setPopoverWidth(POPOVER_WIDTH_DEFAULT);
 }
 
+function loadStoredTheme() {
+  try {
+    return localStorage.getItem(THEME_KEY) || "auto";
+  } catch {
+    return "auto";
+  }
+}
+
+// "auto" | "light" | "dark" を documentElement に反映 (CSS が配色を切り替える)。
+function applyTheme(value) {
+  theme = value === "light" || value === "dark" ? value : "auto";
+  document.documentElement.dataset.theme = theme;
+}
+
+// 設定ウィンドウから届いた表示系設定スナップショットを popover に即適用する。
+function applyViewSettings(s) {
+  if (!s) return;
+  if (typeof s.showClaude === "boolean") {
+    showClaude = s.showClaude;
+    document.body.dataset.showClaude = String(showClaude);
+  }
+  if (typeof s.showCodex === "boolean") {
+    showCodex = s.showCodex;
+    document.body.dataset.showCodex = String(showCodex);
+  }
+  if (typeof s.showBar === "boolean") {
+    showBar = s.showBar;
+    document.body.dataset.showBar = String(showBar);
+  }
+  if (typeof s.showWeekly === "boolean") {
+    showWeekly = s.showWeekly;
+    document.body.dataset.showWeekly = String(showWeekly);
+  }
+  if (typeof s.showResets === "boolean") {
+    showResets = s.showResets;
+    document.body.dataset.showResets = String(showResets);
+  }
+  if (typeof s.showSonnet === "boolean") {
+    showSonnet = s.showSonnet;
+  }
+  if (typeof s.miniMetric === "string") {
+    miniMetric = s.miniMetric;
+    document.body.dataset.miniMetric = miniMetric;
+  }
+  if (typeof s.theme === "string") {
+    applyTheme(s.theme);
+  }
+  if (typeof s.updateNotify === "boolean") {
+    updateNotify = s.updateNotify;
+  }
+  if (s.textScale != null && Number.isFinite(Number(s.textScale))) {
+    renderTextScale(Number(s.textScale));
+  }
+  rerender();
+  // 更新通知の状態変化をバナー/マークに反映する。
+  if (!updateNotify) {
+    const banner = $("#update-banner");
+    if (banner) banner.hidden = true;
+  }
+  syncUpdateIndicators();
+  if (updateNotify && latestUpdateInfo) showUpdateBanner(latestUpdateInfo);
+}
+
 async function initSettings() {
   let backendSettings = null;
   try {
@@ -577,13 +530,8 @@ async function initSettings() {
   showCodex = loadStoredBool(CODEX_VISIBLE_KEY);
   showWeekly = loadStoredBool(WEEKLY_VISIBLE_KEY);
   showResets = loadStoredBool(RESETS_VISIBLE_KEY);
-
-  $("#sonnet-toggle").checked = showSonnet;
-  $("#bar-toggle").checked = showBar;
-  $("#claude-toggle").checked = showClaude;
-  $("#codex-toggle").checked = showCodex;
-  $("#weekly-toggle").checked = showWeekly;
-  $("#resets-toggle").checked = showResets;
+  updateNotify = loadStoredBool(UPDATE_NOTIFY_KEY);
+  applyTheme(loadStoredTheme());
 
   document.body.dataset.showBar = String(showBar);
   document.body.dataset.showClaude = String(showClaude);
@@ -611,7 +559,6 @@ async function initSettings() {
       : DEFAULT_INTERVAL_MIN);
 
   currentIntervalMin = intervalMin;
-  $("#interval-input").value = intervalMin;
 
   // 永続化されているインターバルをバックエンドにも反映
   if (
@@ -651,51 +598,9 @@ async function initSettings() {
 }
 
 $("#refresh").addEventListener("click", refresh);
-$("#settings").addEventListener("click", toggleSettings);
+$("#settings").addEventListener("click", openSettingsWindow);
 $("#pin").addEventListener("click", () => {
   setPinned(!isPinned);
-});
-$("#font-smaller").addEventListener("click", () => {
-  setTextScale(textScale - TEXT_SCALE_STEP);
-});
-$("#font-larger").addEventListener("click", () => {
-  setTextScale(textScale + TEXT_SCALE_STEP);
-});
-$("#width-narrower").addEventListener("click", () => {
-  adjustPopoverWidth(-POPOVER_WIDTH_STEP);
-});
-$("#width-wider").addEventListener("click", () => {
-  adjustPopoverWidth(POPOVER_WIDTH_STEP);
-});
-$("#interval-input").addEventListener("change", (e) => {
-  applyInterval(e.target.value);
-});
-$("#scale-input").addEventListener("change", (e) => {
-  setTextScale(parseFloat(e.target.value));
-});
-$("#sonnet-toggle").addEventListener("change", (e) => {
-  applySonnetVisible(e.target.checked);
-});
-$("#bar-toggle").addEventListener("change", (e) => {
-  applyBarVisible(e.target.checked);
-});
-$("#claude-toggle").addEventListener("change", (e) => {
-  applyClaudeVisible(e.target.checked);
-});
-$("#codex-toggle").addEventListener("change", (e) => {
-  applyCodexVisible(e.target.checked);
-});
-$("#weekly-toggle").addEventListener("change", (e) => {
-  applyWeeklyVisible(e.target.checked);
-});
-$("#resets-toggle").addEventListener("change", (e) => {
-  applyResetsVisible(e.target.checked);
-});
-$("#tray-metric-select").addEventListener("change", (e) => {
-  applyTrayMetric(e.target.value);
-});
-$("#mini-metric-select").addEventListener("change", (e) => {
-  applyMiniMetric(e.target.value);
 });
 $(".card").addEventListener("mousedown", startPinnedDrag);
 $(".card").addEventListener("dblclick", recoverWidthFromMinimal);
@@ -712,10 +617,32 @@ function dismissedUpdateVersion() {
   }
 }
 
+// バナー (full/compact) と更新マーク (condensed/minimal) と body[data-update-available]
+// を、latestUpdateInfo + dismiss 状態から一括同期する。マークの表示可否は CSS が
+// data-update-available × data-density で決めるので、ここでは状態だけ更新する。
+function syncUpdateIndicators() {
+  const info = latestUpdateInfo;
+  const dismissed = !!(info && info.latest === dismissedUpdateVersion());
+  const active = !!(info && info.available && !dismissed && updateNotify);
+  document.body.dataset.updateAvailable = String(active);
+  if (info && info.available) {
+    const label = "v" + info.latest;
+    const versionEl = $("#update-version");
+    if (versionEl) versionEl.textContent = label;
+    const mark = $("#update-mark");
+    if (mark) mark.title = `新しいバージョン ${label} が利用可能です（クリックで開く）`;
+  }
+}
+
 function showUpdateBanner(info, force = false) {
   if (!info || !info.available) return;
-  // 一度「閉じる」した版は再表示しない (新しい版が出れば再び出る)。
-  // ただし手動チェック (force) では明示要求なので無視して表示する。
+  latestUpdateInfo = info;
+  // マーク / データセットは dismiss を尊重して同期 (小窓の表示はこれが担当)。
+  syncUpdateIndicators();
+  // 更新通知が OFF ならバナーもマークも出さない。
+  if (!updateNotify) return;
+  // 一度「閉じる」した版は自動ではバナーを再表示しない (新しい版が出れば再び出る)。
+  // 手動チェック (force) は明示要求なので dismiss を無視して表示する。
   if (!force && info.latest === dismissedUpdateVersion()) return;
   const banner = $("#update-banner");
   const versionEl = $("#update-version");
@@ -726,18 +653,20 @@ function showUpdateBanner(info, force = false) {
 
 function dismissUpdateBanner() {
   const banner = $("#update-banner");
-  const version = $("#update-version");
   if (banner) banner.hidden = true;
   try {
-    if (version && version.textContent) {
-      localStorage.setItem(
-        UPDATE_DISMISSED_KEY,
-        version.textContent.replace(/^v/, "")
-      );
+    const version =
+      latestUpdateInfo && latestUpdateInfo.available
+        ? latestUpdateInfo.latest
+        : ($("#update-version")?.textContent || "").replace(/^v/, "");
+    if (version) {
+      localStorage.setItem(UPDATE_DISMISSED_KEY, version);
     }
   } catch {
     // ignore
   }
+  // dismiss を反映してマーク / データセットも消す。
+  syncUpdateIndicators();
 }
 
 async function openReleasePage() {
@@ -767,55 +696,6 @@ function loadStoredUpdateIntervalHours() {
   }
 }
 
-async function applyUpdateInterval(hours) {
-  updateIntervalHours = clampUpdateIntervalHours(hours);
-  const input = $("#update-interval-input");
-  if (input && document.activeElement !== input) {
-    input.value = updateIntervalHours;
-  }
-  try {
-    localStorage.setItem(UPDATE_INTERVAL_HOURS_KEY, String(updateIntervalHours));
-  } catch {
-    // ignore
-  }
-  try {
-    await invoke("set_update_check_interval", {
-      secs: updateIntervalHours * 3600,
-    });
-  } catch (err) {
-    console.error(err);
-  }
-}
-
-function setUpdateStatus(text) {
-  const el = $("#update-check-status");
-  if (el) el.textContent = text;
-}
-
-async function checkUpdateNow() {
-  const btn = $("#update-check-now");
-  if (btn) btn.disabled = true;
-  setUpdateStatus("確認中…");
-  try {
-    const info = await invoke("check_update_now");
-    if (info && info.available) {
-      setUpdateStatus("新しい版があります");
-      showUpdateBanner(info, true);
-    } else if (info) {
-      setUpdateStatus("最新版です (v" + info.current + ")");
-    } else {
-      setUpdateStatus("確認できませんでした");
-    }
-  } catch (err) {
-    console.error(err);
-    setUpdateStatus("確認に失敗しました");
-  } finally {
-    if (btn) btn.disabled = false;
-    // しばらくしたら通常ラベルに戻す
-    setTimeout(() => setUpdateStatus("アプリの更新"), 6000);
-  }
-}
-
 async function initUpdateCheck() {
   // バックエンドが起動直後に行ったチェック結果を取りに行く。
   // (定期チェックの結果は update-available イベントで届く)
@@ -828,11 +708,8 @@ async function initUpdateCheck() {
 }
 
 $("#update-open").addEventListener("click", openReleasePage);
+$("#update-mark").addEventListener("click", openReleasePage);
 $("#update-dismiss").addEventListener("click", dismissUpdateBanner);
-$("#update-interval-input").addEventListener("change", (e) => {
-  applyUpdateInterval(e.target.value);
-});
-$("#update-check-now").addEventListener("click", checkUpdateNow);
 
 listen("update-available", (event) => {
   showUpdateBanner(event.payload);
@@ -842,8 +719,15 @@ listen("usage-updated", (event) => {
   render(event.payload);
 });
 
+// 設定ウィンドウでの変更を即時反映する。
+listen("settings-changed", (event) => {
+  applyViewSettings(event.payload);
+});
+
 // 初期ロード時に API を叩かない（backend のポーラから event が来るのを待つ）。
 updateDensity();
+document.body.dataset.updateAvailable = "false";
+applyTheme(loadStoredTheme());
 initTextScale();
 initPinned();
 initSettings();

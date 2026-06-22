@@ -35,6 +35,7 @@ pub const DEFAULT_POLL_INTERVAL_SECS: u64 = 300;
 pub(crate) const POPOVER_MIN_WIDTH: f64 = 1.0;
 const POPOVER_MIN_HEIGHT: f64 = 40.0;
 pub(crate) const POPOVER_DEFAULT_WIDTH: f64 = 340.0;
+pub(crate) const POPOVER_DEFAULT_HEIGHT: f64 = 420.0;
 pub(crate) const POPOVER_WIDTH_STEP: f64 = 24.0;
 static POLL_INTERVAL_SECS: AtomicU64 = AtomicU64::new(DEFAULT_POLL_INTERVAL_SECS);
 
@@ -212,12 +213,49 @@ fn suppress_popover_auto_hide() {
     suppress_popover_auto_hide_for(RESIZE_AUTO_HIDE_SUPPRESSION_MS);
 }
 
+/// popover の幅を変更する。別ウィンドウ (settings) からも呼べるよう、呼び出し元の
+/// window ではなく常に "popover" ラベルのウィンドウを対象にする。
 #[tauri::command]
-fn set_popover_width(
-    window: tauri::WebviewWindow,
-    width: f64,
-) -> Result<PopoverSizeReport, String> {
+fn set_popover_width(app: tauri::AppHandle, width: f64) -> Result<PopoverSizeReport, String> {
+    let window = app
+        .get_webview_window("popover")
+        .ok_or_else(|| "popover window not found".to_string())?;
     resize_popover_width(&window, width)
+}
+
+/// popover を既定サイズ (幅・高さとも) へ戻す。設定ウィンドウの「サイズをリセット」から呼ぶ。
+/// 常に "popover" ラベルのウィンドウを対象にする。
+#[tauri::command]
+fn reset_popover_size(app: tauri::AppHandle) -> Result<PopoverSizeReport, String> {
+    let window = app
+        .get_webview_window("popover")
+        .ok_or_else(|| "popover window not found".to_string())?;
+    window
+        .set_size(tauri::LogicalSize::new(
+            POPOVER_DEFAULT_WIDTH,
+            POPOVER_DEFAULT_HEIGHT,
+        ))
+        .map_err(|e| e.to_string())?;
+    let inner = window.inner_size().map_err(|e| e.to_string())?;
+    let outer = window.outer_size().map_err(|e| e.to_string())?;
+    Ok(PopoverSizeReport {
+        requested_width: POPOVER_DEFAULT_WIDTH,
+        inner_width: inner.width,
+        outer_width: outer.width,
+    })
+}
+
+/// 設定ウィンドウ (label="settings") を表示してフォーカスする。
+/// ウィンドウは静的定義 (visible:false) で常駐し、閉じる操作では破棄せず hide する。
+#[tauri::command]
+fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
+    let win = app
+        .get_webview_window("settings")
+        .ok_or_else(|| "settings window not found".to_string())?;
+    let _ = win.unminimize();
+    win.show().map_err(|e| e.to_string())?;
+    win.set_focus().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 pub(crate) fn resize_popover_width<R: tauri::Runtime>(
@@ -520,6 +558,8 @@ pub fn run() {
             set_popover_pinned,
             suppress_popover_auto_hide,
             set_popover_width,
+            reset_popover_size,
+            open_settings_window,
             get_settings,
             set_provider,
             set_poll_interval,
@@ -553,8 +593,8 @@ pub fn run() {
             update::spawn_checker(app.handle().clone());
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Focused(false) = event {
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::Focused(false) => {
                 if window.label() == "popover" {
                     let shown_at = SHOWN_AT_MS.load(Ordering::SeqCst);
                     let suppressed_until =
@@ -571,6 +611,14 @@ pub fn run() {
                     let _ = window.hide();
                 }
             }
+            // 設定ウィンドウは静的定義で常駐させたいので、閉じる操作では破棄せず hide する。
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                if window.label() == "settings" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+            _ => {}
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

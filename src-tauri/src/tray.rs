@@ -418,6 +418,10 @@ fn toggle_popover<R: Runtime>(app: &AppHandle<R>, cache: &Cache) {
     if let Ok(guard) = cache.lock() {
         let _ = app.emit("usage-updated", &*guard);
     }
+
+    // 起動直後に取りこぼした「更新あり」を、開いたタイミングで再通知する
+    // (initUpdateCheck はバックエンド初回チェック前に走り空振りするため)。
+    crate::update::reemit_cached_update(app);
 }
 
 fn now_ms() -> i64 {

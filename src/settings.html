@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>token_display 設定</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="settings.css" />
+  </head>
+  <body>
+    <main class="settings-window">
+      <section class="settings">
+        <div class="settings__section-title">表示する項目</div>
+        <label class="settings__row">
+          <span class="settings__label">Claude</span>
+          <input id="claude-toggle" type="checkbox" class="settings__control settings__control--check" />
+        </label>
+        <label class="settings__row">
+          <span class="settings__label">Codex</span>
+          <input id="codex-toggle" type="checkbox" class="settings__control settings__control--check" />
+        </label>
+        <label class="settings__row">
+          <span class="settings__label">5h バー</span>
+          <input id="bar-toggle" type="checkbox" class="settings__control settings__control--check" />
+        </label>
+        <label class="settings__row">
+          <span class="settings__label">週間使用率</span>
+          <input id="weekly-toggle" type="checkbox" class="settings__control settings__control--check" />
+        </label>
+        <label class="settings__row">
+          <span class="settings__label">Sonnet 週間</span>
+          <input id="sonnet-toggle" type="checkbox" class="settings__control settings__control--check" />
+        </label>
+        <label class="settings__row">
+          <span class="settings__label">リセット時刻</span>
+          <input id="resets-toggle" type="checkbox" class="settings__control settings__control--check" />
+        </label>
+      </section>
+
+      <section class="settings">
+        <div class="settings__section-title">外観</div>
+        <label class="settings__row">
+          <span class="settings__label">テーマ</span>
+          <select id="theme-select" class="settings__control">
+            <option value="auto">自動 (OS に従う)</option>
+            <option value="light">ライト</option>
+            <option value="dark">ダーク</option>
+          </select>
+        </label>
+        <label class="settings__row">
+          <span class="settings__label">文字サイズ</span>
+          <span class="settings__inline">
+            <button id="font-smaller" class="icon-btn icon-btn--small" title="文字を小さく" aria-label="文字を小さく" type="button">A-</button>
+            <button id="font-larger" class="icon-btn icon-btn--small" title="文字を大きく" aria-label="文字を大きく" type="button">A+</button>
+            <input id="scale-input" class="settings__control settings__control--num" type="number" min="0.6" max="2.0" step="0.05" />
+            <span class="settings__suffix">×</span>
+          </span>
+        </label>
+        <label class="settings__row">
+          <span class="settings__label">横幅</span>
+          <span class="settings__inline">
+            <button id="width-narrower" class="icon-btn icon-btn--small" title="横幅を狭く" aria-label="横幅を狭く" type="button">W-</button>
+            <button id="width-wider" class="icon-btn icon-btn--small" title="横幅を広く" aria-label="横幅を広く" type="button">W+</button>
+            <input id="width-input" class="settings__control settings__control--num" type="number" min="1" max="640" step="10" />
+            <span class="settings__suffix">px</span>
+          </span>
+        </label>
+        <div class="settings__row">
+          <span class="settings__label">ウィンドウサイズ</span>
+          <button id="reset-size" class="icon-btn icon-btn--small" type="button" title="既定サイズに戻す">サイズをリセット</button>
+        </div>
+      </section>
+
+      <section class="settings">
+        <div class="settings__section-title">更新</div>
+        <label class="settings__row">
+          <span class="settings__label">データ取得間隔</span>
+          <span class="settings__inline">
+            <input id="interval-input" class="settings__control settings__control--num" type="number" min="1" max="60" step="1" />
+            <span class="settings__suffix">分</span>
+          </span>
+        </label>
+        <label class="settings__row">
+          <span class="settings__label">アプリ更新確認</span>
+          <span class="settings__inline">
+            <input id="update-interval-input" class="settings__control settings__control--num" type="number" min="1" max="168" step="1" />
+            <span class="settings__suffix">時間ごと</span>
+          </span>
+        </label>
+        <label class="settings__row">
+          <span class="settings__label">アプリ更新通知</span>
+          <input id="update-notify-toggle" type="checkbox" class="settings__control settings__control--check" />
+        </label>
+        <div class="settings__row">
+          <span class="settings__label" id="update-check-status">アプリの更新</span>
+          <button id="update-check-now" class="icon-btn icon-btn--small" type="button" title="今すぐ更新を確認">今すぐ確認</button>
+        </div>
+        <div class="settings__row settings__row--note">
+          <span id="update-open-link" class="settings__link" role="button" tabindex="0" hidden>リリースページを開く →</span>
+        </div>
+      </section>
+
+      <section class="settings">
+        <div class="settings__section-title">小さいモード</div>
+        <label class="settings__row">
+          <span class="settings__label">トレイ表示</span>
+          <select id="tray-metric-select" class="settings__control">
+            <option value="five_hour">5h セッション</option>
+            <option value="weekly">週間</option>
+          </select>
+        </label>
+        <label class="settings__row">
+          <span class="settings__label">極小ウィンドウ</span>
+          <select id="mini-metric-select" class="settings__control">
+            <option value="five_hour">5h セッション</option>
+            <option value="weekly">週間</option>
+            <option value="both">両方</option>
+          </select>
+        </label>
+      </section>
+    </main>
+    <script src="settings.js" defer></script>
+  </body>
+</html>

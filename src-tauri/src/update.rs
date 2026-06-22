@@ -181,6 +181,23 @@ pub fn get_update_info() -> Option<UpdateInfo> {
     cache().lock().unwrap().clone()
 }
 
+/// popover を開いたときに、キャッシュ済みの「更新あり」を再通知する。
+///
+/// 起動直後の frontend `initUpdateCheck` はバックエンドの初回チェック (`INITIAL_DELAY`
+/// 後) より前に走るため、その時点ではキャッシュが空 (None) で空振りする。さらに popover の
+/// webview は hide/show のみでリロードされないので `initUpdateCheck` は二度と走らない。
+/// そこで popover を開くたびにこれを呼び、取りこぼした「更新あり」を拾えるようにする。
+/// `available=false` のときは何も emit しない (誤通知防止)。frontend 側は dismiss 済みの版を
+/// `force=false` で抑制するので、ここで毎回 emit しても「閉じた」版が復活することはない。
+pub fn reemit_cached_update<R: Runtime>(app: &AppHandle<R>) {
+    let cached = cache().lock().unwrap().clone();
+    if let Some(info) = cached {
+        if info.available {
+            let _ = app.emit("update-available", &info);
+        }
+    }
+}
+
 /// キャッシュ済みリリース URL を OS の既定ブラウザで開く。
 /// 任意 URL は受けず、我々がチェックで得た URL のみを開く (安全側)。
 #[tauri::command]
