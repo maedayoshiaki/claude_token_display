@@ -120,9 +120,9 @@ jobs:
 
             ## 前提
 
-            表示したいプロバイダの CLI でログイン済みであること (両方でも片方でも可)。
+            表示したいプロバイダにログイン済みであること (両方でも片方でも可)。
 
-            - **Claude**: `claude` CLI でログイン
+            - **Claude**: `claude` CLI **または** Claude Desktop (Microsoft Store / MSIX 版含む) でログイン
             - **Codex**: `codex` CLI でログイン
 
             ## 初回起動
