@@ -39,6 +39,10 @@ pub(crate) const POPOVER_DEFAULT_HEIGHT: f64 = 420.0;
 pub(crate) const POPOVER_WIDTH_STEP: f64 = 24.0;
 static POLL_INTERVAL_SECS: AtomicU64 = AtomicU64::new(DEFAULT_POLL_INTERVAL_SECS);
 
+// Temporary test switch: skip reading Claude Code credentials and force the
+// Claude Desktop credential path. Set this back to false after Desktop testing.
+const DISABLE_CLAUDE_CODE_TOKEN_READ_FOR_DESKTOP_TEST: bool = false;
+
 /// 更新チェック間隔 (秒)。usage ポーリングとは別系統。短すぎると GitHub の
 /// 未認証レート制限 (IP あたり 60 req/h) に触れるので最小 1 時間。
 pub const MIN_UPDATE_CHECK_INTERVAL_SECS: u64 = 3_600;
@@ -177,6 +181,24 @@ pub struct PopoverSizeReport {
     pub outer_width: u32,
 }
 
+#[derive(Serialize, Clone, Debug)]
+pub struct CredentialEntry {
+    pub source: String,
+    pub available: bool,
+    pub organization_uuid: Option<String>,
+    pub subscription_type: Option<String>,
+    pub rate_limit_tier: Option<String>,
+    pub account_label: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct CredentialInfo {
+    pub claude_code: CredentialEntry,
+    pub claude_desktop: CredentialEntry,
+    pub codex: CredentialEntry,
+}
+
 #[tauri::command]
 async fn get_usage() -> AllUsage {
     fetch_all_usage().await
@@ -187,6 +209,17 @@ async fn get_usage() -> AllUsage {
 #[tauri::command]
 fn refresh_now() {
     poll_wake_internal().notify_one();
+}
+
+/// 現在表示中の usage キャッシュを捨ててから即時再取得する。
+#[tauri::command]
+fn reload_now(app: tauri::AppHandle) {
+    tray::clear_cached_usage_and_reload(&app);
+}
+
+#[tauri::command]
+fn get_credential_info() -> CredentialInfo {
+    credential_info()
 }
 
 pub async fn fetch_all_usage() -> AllUsage {
@@ -436,20 +469,6 @@ pub async fn fetch_usage_inner(provider: Provider) -> FetchResult {
     }
 }
 
-/// Claude のトークンを取得する。Claude Code CLI の保存先を優先し、無ければ
-/// Claude Desktop の保存先にフォールバックする (どちらも同種の subscription
-/// OAuth トークンで、使用枠は共有プールなので同じ数字が得られる)。
-fn read_claude_token() -> Result<String, String> {
-    let cli_err = match keychain::read_access_token() {
-        Ok(token) => return Ok(token),
-        Err(e) => e,
-    };
-    match claude_desktop::read_access_token() {
-        Ok(token) => Ok(token),
-        Err(desktop_err) => Err(combine_claude_token_errors(&cli_err, &desktop_err)),
-    }
-}
-
 /// クレデンシャルファイル (Claude Code の `.credentials.json` / Claude Desktop の
 /// `config.json`) は各アプリがトークン更新時に書き換える。その「削除→再作成」や
 /// 部分書き込みの一瞬に読みに行くと NotFound / パース失敗になりうるので、それらは
@@ -491,33 +510,212 @@ fn combine_claude_token_errors(
     format!("Claude Code: {cli} / Claude Desktop: {desktop}")
 }
 
-async fn fetch_claude() -> FetchResult {
-    let token = match read_claude_token() {
-        Ok(t) => t,
-        Err(message) => {
-            return FetchResult::Err {
-                provider: Provider::Claude,
-                message,
-            }
+fn should_try_desktop_after_cli_api_error(e: &api::ApiError) -> bool {
+    matches!(
+        e,
+        api::ApiError::Unauthorized | api::ApiError::CredentialRestricted { .. }
+    )
+}
+
+fn claude_api_error_to_result(e: api::ApiError) -> FetchResult {
+    match e {
+        api::ApiError::RateLimited { retry_after_secs } => FetchResult::RateLimited {
+            provider: Provider::Claude,
+            retry_after_secs,
+        },
+        api::ApiError::CredentialRestricted { message } => FetchResult::CredentialRestricted {
+            provider: Provider::Claude,
+            message,
+        },
+        e => FetchResult::Err {
+            provider: Provider::Claude,
+            message: e.to_string(),
+        },
+    }
+}
+
+fn short_id(raw: &str) -> String {
+    let s = raw.trim();
+    if s.len() <= 12 {
+        return s.to_string();
+    }
+    let tail: String = s
+        .chars()
+        .rev()
+        .take(8)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    format!("...{tail}")
+}
+
+fn claude_account_label(
+    organization_uuid: Option<&str>,
+    subscription_type: Option<&str>,
+    rate_limit_tier: Option<&str>,
+) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(subscription) = subscription_type.filter(|s| !s.is_empty()) {
+        parts.push(subscription.to_string());
+    }
+    if let Some(tier) = rate_limit_tier.filter(|s| !s.is_empty()) {
+        if !parts.iter().any(|p| p == tier) {
+            parts.push(tier.to_string());
         }
+    }
+    if let Some(org) = organization_uuid.filter(|s| !s.is_empty()) {
+        parts.push(format!("org {}", short_id(org)));
+    }
+    (!parts.is_empty()).then(|| parts.join(" / "))
+}
+
+fn cli_account_label(c: &keychain::ClaudeCodeCredential) -> Option<String> {
+    claude_account_label(
+        c.organization_uuid.as_deref(),
+        c.subscription_type.as_deref(),
+        c.rate_limit_tier.as_deref(),
+    )
+}
+
+fn desktop_account_label(c: &claude_desktop::DesktopCredential) -> Option<String> {
+    claude_account_label(
+        c.organization_uuid.as_deref(),
+        c.subscription_type.as_deref(),
+        c.rate_limit_tier.as_deref(),
+    )
+}
+
+fn credential_info() -> CredentialInfo {
+    let claude_code = match keychain::read_credentials() {
+        Ok(c) => CredentialEntry {
+            source: "Claude Code".to_string(),
+            available: true,
+            organization_uuid: c.organization_uuid.clone(),
+            subscription_type: c.subscription_type.clone(),
+            rate_limit_tier: c.rate_limit_tier.clone(),
+            account_label: cli_account_label(&c),
+            error: None,
+        },
+        Err(e) => CredentialEntry {
+            source: "Claude Code".to_string(),
+            available: false,
+            organization_uuid: None,
+            subscription_type: None,
+            rate_limit_tier: None,
+            account_label: None,
+            error: Some(e.to_string()),
+        },
     };
-    match api::fetch_usage(&token).await {
+
+    let claude_desktop = match claude_desktop::read_credentials() {
+        Ok(c) => CredentialEntry {
+            source: "Claude Desktop".to_string(),
+            available: true,
+            organization_uuid: c.organization_uuid.clone(),
+            subscription_type: c.subscription_type.clone(),
+            rate_limit_tier: c.rate_limit_tier.clone(),
+            account_label: desktop_account_label(&c),
+            error: None,
+        },
+        Err(e) => CredentialEntry {
+            source: "Claude Desktop".to_string(),
+            available: false,
+            organization_uuid: None,
+            subscription_type: None,
+            rate_limit_tier: None,
+            account_label: None,
+            error: Some(e.to_string()),
+        },
+    };
+
+    let codex = match codex::read_credentials() {
+        Ok(c) => CredentialEntry {
+            source: "Codex CLI".to_string(),
+            available: true,
+            organization_uuid: None,
+            subscription_type: None,
+            rate_limit_tier: None,
+            account_label: c.account_id.as_deref().map(short_id),
+            error: None,
+        },
+        Err(e) => CredentialEntry {
+            source: "Codex CLI".to_string(),
+            available: false,
+            organization_uuid: None,
+            subscription_type: None,
+            rate_limit_tier: None,
+            account_label: None,
+            error: Some(e.to_string()),
+        },
+    };
+
+    CredentialInfo {
+        claude_code,
+        claude_desktop,
+        codex,
+    }
+}
+
+async fn fetch_claude_with_token(token: &str) -> FetchResult {
+    match api::fetch_usage(token).await {
         Ok(snapshot) => FetchResult::Ok {
             provider: Provider::Claude,
             snapshot,
         },
-        Err(api::ApiError::RateLimited { retry_after_secs }) => FetchResult::RateLimited {
-            provider: Provider::Claude,
-            retry_after_secs,
+        Err(e) => claude_api_error_to_result(e),
+    }
+}
+
+async fn fetch_claude() -> FetchResult {
+    if DISABLE_CLAUDE_CODE_TOKEN_READ_FOR_DESKTOP_TEST {
+        return match claude_desktop::read_credentials() {
+            Ok(credential) => fetch_claude_with_token(&credential.access_token).await,
+            Err(e) => FetchResult::Err {
+                provider: Provider::Claude,
+                message: format!("Claude Code credential read is disabled for Desktop test / Claude Desktop: {e}"),
+            },
+        };
+    }
+
+    let cli_credential = match keychain::read_credentials() {
+        Ok(credential) => Some(credential),
+        Err(cli_err) => match claude_desktop::read_credentials() {
+            Ok(credential) => return fetch_claude_with_token(&credential.access_token).await,
+            Err(desktop_err) => {
+                let message = combine_claude_token_errors(&cli_err, &desktop_err);
+                return FetchResult::Err {
+                    provider: Provider::Claude,
+                    message,
+                };
+            }
         },
-        Err(api::ApiError::CredentialRestricted { message }) => FetchResult::CredentialRestricted {
+    };
+
+    let cli_credential = cli_credential.expect("Some after successful keychain read");
+    match api::fetch_usage(&cli_credential.access_token).await {
+        Ok(snapshot) => FetchResult::Ok {
             provider: Provider::Claude,
-            message,
+            snapshot,
         },
-        Err(e) => FetchResult::Err {
-            provider: Provider::Claude,
-            message: e.to_string(),
-        },
+        Err(cli_api_err) if should_try_desktop_after_cli_api_error(&cli_api_err) => {
+            let cli_message = cli_api_err.to_string();
+            match claude_desktop::read_credentials() {
+                Ok(desktop_credential)
+                    if desktop_credential.access_token != cli_credential.access_token =>
+                {
+                    fetch_claude_with_token(&desktop_credential.access_token).await
+                }
+                Ok(_) => claude_api_error_to_result(cli_api_err),
+                Err(desktop_err) => FetchResult::Err {
+                    provider: Provider::Claude,
+                    message: format!(
+                        "Claude Code token was rejected: {cli_message} / Claude Desktop: {desktop_err}"
+                    ),
+                },
+            }
+        }
+        Err(e) => claude_api_error_to_result(e),
     }
 }
 
@@ -554,6 +752,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_usage,
             refresh_now,
+            reload_now,
+            get_credential_info,
             get_popover_pinned,
             set_popover_pinned,
             suppress_popover_auto_hide,
@@ -724,5 +924,25 @@ mod tests {
         assert_eq!(Provider::from_u8(Provider::Codex.as_u8()), Provider::Codex);
         // unknown values fall back to Claude
         assert_eq!(Provider::from_u8(42), Provider::Claude);
+    }
+
+    #[test]
+    fn desktop_retry_is_limited_to_cli_auth_failures() {
+        assert!(should_try_desktop_after_cli_api_error(
+            &api::ApiError::Unauthorized
+        ));
+        assert!(should_try_desktop_after_cli_api_error(
+            &api::ApiError::CredentialRestricted {
+                message: "blocked".into(),
+            }
+        ));
+        assert!(!should_try_desktop_after_cli_api_error(
+            &api::ApiError::RateLimited {
+                retry_after_secs: Some(60),
+            }
+        ));
+        assert!(!should_try_desktop_after_cli_api_error(
+            &api::ApiError::Network("offline".into())
+        ));
     }
 }

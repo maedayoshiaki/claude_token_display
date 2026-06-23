@@ -49,19 +49,33 @@ pub enum DesktopError {
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
+#[allow(dead_code)]
 pub fn read_access_token() -> Result<String, DesktopError> {
-    // Claude Desktop はトークン更新時に config.json を削除→再作成で書き換える。
-    // その一瞬に読みに行くと NotFound / 部分書き込みによるパース・復号失敗になりうるので
-    // transient とみなしてリトライする。
-    crate::read_with_retry(read_access_token_once, is_transient)
+    read_credentials().map(|c| c.access_token)
+}
+
+#[derive(Clone, Debug)]
+pub struct DesktopCredential {
+    pub access_token: String,
+    pub organization_uuid: Option<String>,
+    pub subscription_type: Option<String>,
+    pub rate_limit_tier: Option<String>,
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
-fn read_access_token_once() -> Result<String, DesktopError> {
+pub fn read_credentials() -> Result<DesktopCredential, DesktopError> {
+    // Claude Desktop はトークン更新時に config.json を削除→再作成で書き換える。
+    // その一瞬に読みに行くと NotFound / 部分書き込みによるパース・復号失敗になりうるので
+    // transient とみなしてリトライする。
+    crate::read_with_retry(read_credentials_once, is_transient)
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn read_credentials_once() -> Result<DesktopCredential, DesktopError> {
     let config = read_config_json()?;
     let cipher_b64 = extract_token_cache(&config)?;
     let plaintext = decrypt_os_crypt(&cipher_b64)?;
-    parse_access_token(&plaintext)
+    parse_credential(&plaintext)
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -75,7 +89,13 @@ fn is_transient(e: &DesktopError) -> bool {
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+#[allow(dead_code)]
 pub fn read_access_token() -> Result<String, DesktopError> {
+    Err(DesktopError::NotFound)
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+pub fn read_credentials() -> Result<DesktopCredential, DesktopError> {
     Err(DesktopError::NotFound)
 }
 
@@ -207,7 +227,12 @@ fn strip_version_prefix(blob: &[u8]) -> Result<&[u8], DesktopError> {
 ///   アクセストークンのフィールド名は `accessToken` ではなく **`token`**。
 ///   `/api/oauth/usage` は `user:profile` スコープ + audience `api.anthropic.com` が要るので、
 ///   その条件に合い・期限が新しいエントリを優先して選ぶ。
+#[allow(dead_code)]
 fn parse_access_token(plaintext: &[u8]) -> Result<String, DesktopError> {
+    parse_credential(plaintext).map(|c| c.access_token)
+}
+
+fn parse_credential(plaintext: &[u8]) -> Result<DesktopCredential, DesktopError> {
     let s = std::str::from_utf8(plaintext)
         .map_err(|e| DesktopError::Decode(e.to_string()))?
         .trim();
@@ -219,26 +244,46 @@ fn parse_access_token(plaintext: &[u8]) -> Result<String, DesktopError> {
             .and_then(|t| t.as_str())
             .filter(|t| !t.is_empty())
         {
-            return Ok(tok.to_string());
+            return Ok(DesktopCredential {
+                access_token: tok.to_string(),
+                organization_uuid: None,
+                subscription_type: None,
+                rate_limit_tier: None,
+            });
         }
         if let Some(tok) = v
             .get("accessToken")
             .and_then(|t| t.as_str())
             .filter(|t| !t.is_empty())
         {
-            return Ok(tok.to_string());
+            return Ok(DesktopCredential {
+                access_token: tok.to_string(),
+                organization_uuid: None,
+                subscription_type: None,
+                rate_limit_tier: None,
+            });
         }
-        if let Some(tok) = best_v2_token(&v, now_epoch_ms()) {
-            return Ok(tok);
+        if let Some(cred) = best_v2_credential(&v, now_epoch_ms()) {
+            return Ok(cred);
         }
         if let Some(tok) = find_oauth_token(&v) {
-            return Ok(tok);
+            return Ok(DesktopCredential {
+                access_token: tok,
+                organization_uuid: None,
+                subscription_type: None,
+                rate_limit_tier: None,
+            });
         }
     }
 
     // JSON でない / 見つからない場合: 素のトークン文字列か?
     if s.starts_with("sk-ant-") && !s.chars().any(|c| c.is_whitespace()) {
-        return Ok(s.to_string());
+        return Ok(DesktopCredential {
+            access_token: s.to_string(),
+            organization_uuid: None,
+            subscription_type: None,
+            rate_limit_tier: None,
+        });
     }
 
     Err(DesktopError::EmptyToken)
@@ -251,9 +296,14 @@ fn parse_access_token(plaintext: &[u8]) -> Result<String, DesktopError> {
 ///      確実に失敗する 401/403 の無駄打ちを避ける (`user:profile` を最上位重みにしない)
 ///   3. スコープに `user:profile` を含む — 同条件内のタイブレーク
 ///   4. `expiresAt` が新しい
+#[allow(dead_code)]
 fn best_v2_token(v: &serde_json::Value, now_ms: i64) -> Option<String> {
+    best_v2_credential(v, now_ms).map(|c| c.access_token)
+}
+
+fn best_v2_credential(v: &serde_json::Value, now_ms: i64) -> Option<DesktopCredential> {
     let obj = v.as_object()?;
-    let mut best: Option<((i32, i32, i32, i64), String)> = None;
+    let mut best: Option<((i32, i32, i32, i64), DesktopCredential)> = None;
     for (key, entry) in obj {
         let entry = match entry.as_object() {
             Some(e) => e,
@@ -272,15 +322,36 @@ fn best_v2_token(v: &serde_json::Value, now_ms: i64) -> Option<String> {
         let unexpired = expires > now_ms;
         let profile = key.contains("user:profile");
         let score = (audience as i32, unexpired as i32, profile as i32, expires);
+        let credential = DesktopCredential {
+            access_token: token,
+            organization_uuid: organization_uuid_from_v2_key(key),
+            subscription_type: entry
+                .get("subscriptionType")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(str::to_string),
+            rate_limit_tier: entry
+                .get("rateLimitTier")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(str::to_string),
+        };
         let better = match &best {
             None => true,
             Some((best_score, _)) => score > *best_score,
         };
         if better {
-            best = Some((score, token));
+            best = Some((score, credential));
         }
     }
-    best.map(|(_, t)| t)
+    best.map(|(_, c)| c)
+}
+
+fn organization_uuid_from_v2_key(key: &str) -> Option<String> {
+    key.split(':')
+        .nth(1)
+        .filter(|s| !s.is_empty() && !s.contains("anthropic.com"))
+        .map(str::to_string)
 }
 
 /// 任意の深さで最初に見つかった非空の `accessToken`、または `sk-ant-` で始まる
@@ -536,9 +607,13 @@ mod tests {
         // 値の token フィールドがアクセストークン。
         let future = now_epoch_ms() + 1_000_000;
         let pt = format!(
-            r#"{{"9d1c:org:https://api.anthropic.com:user:inference user:profile":{{"token":"sk-ant-oat01-v2","refreshToken":"r","expiresAt":{future},"subscriptionType":"max"}}}}"#
+            r#"{{"9d1c:org-123:https://api.anthropic.com:user:inference user:profile":{{"token":"sk-ant-oat01-v2","refreshToken":"r","expiresAt":{future},"subscriptionType":"max","rateLimitTier":"tier_1"}}}}"#
         );
         assert_eq!(parse_access_token(pt.as_bytes()).unwrap(), "sk-ant-oat01-v2");
+        let credential = parse_credential(pt.as_bytes()).unwrap();
+        assert_eq!(credential.organization_uuid.as_deref(), Some("org-123"));
+        assert_eq!(credential.subscription_type.as_deref(), Some("max"));
+        assert_eq!(credential.rate_limit_tier.as_deref(), Some("tier_1"));
     }
 
     #[test]

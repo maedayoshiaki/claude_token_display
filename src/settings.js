@@ -168,9 +168,9 @@ async function init() {
       : backend?.update_check_interval_secs
         ? clampUpdateHours(backend.update_check_interval_secs / 3600)
         : DEFAULT_UPDATE_INTERVAL_HOURS;
-
   applyThemeLocally();
   renderControls();
+  renderCredentialInfo();
 }
 
 function renderControls() {
@@ -284,6 +284,65 @@ $("#update-notify-toggle").addEventListener("change", (e) => {
   updateNotify = e.target.checked;
   setBool(UPDATE_NOTIFY_KEY, updateNotify);
   broadcast();
+});
+
+// ───── 認証情報 / Claude Desktop テスト ─────
+function displayValue(value) {
+  return value && String(value).trim() ? String(value) : "—";
+}
+
+function renderCredentialEntry(key, entry) {
+  const root = document.querySelector(`[data-credential="${key}"]`);
+  if (!root) return;
+  const status = root.querySelector("[data-status]");
+  const organization = root.querySelector('[data-field="organization"]');
+  const subscription = root.querySelector('[data-field="subscription"]');
+  const tier = root.querySelector('[data-field="tier"]');
+
+  root.dataset.available = String(!!entry?.available);
+  if (status) {
+    status.textContent = entry?.available ? "利用可能" : "未検出";
+    status.title = entry?.available ? "" : (entry?.error || "");
+  }
+  if (organization) {
+    organization.textContent =
+      key === "codex"
+        ? displayValue(entry?.account_label)
+        : displayValue(entry?.organization_uuid);
+    organization.title = organization.textContent;
+  }
+  if (subscription) {
+    subscription.textContent = displayValue(entry?.subscription_type);
+    subscription.title = subscription.textContent;
+  }
+  if (tier) {
+    tier.textContent = displayValue(entry?.rate_limit_tier);
+    tier.title = tier.textContent;
+  }
+}
+
+async function renderCredentialInfo() {
+  try {
+    const info = await invoke("get_credential_info");
+    renderCredentialEntry("claude_code", info.claude_code);
+    renderCredentialEntry("claude_desktop", info.claude_desktop);
+    renderCredentialEntry("codex", info.codex);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+$("#credential-refresh").addEventListener("click", async () => {
+  const btn = $("#credential-refresh");
+  btn.disabled = true;
+  try {
+    await renderCredentialInfo();
+    await invoke("reload_now");
+  } catch (err) {
+    console.error(err);
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 // ───── 今すぐ確認 ─────

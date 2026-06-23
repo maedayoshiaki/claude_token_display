@@ -72,6 +72,48 @@
       </section>
 
       <section class="settings">
+        <div class="settings__section-title">認証</div>
+        <div class="settings__credentials" id="credential-info">
+          <div class="settings__credential" data-credential="claude_code">
+            <div class="settings__credential-head">
+              <span class="settings__credential-name">Claude Code</span>
+              <span class="settings__credential-status" data-status>確認中…</span>
+            </div>
+            <dl class="settings__credential-meta">
+              <div><dt>organization</dt><dd data-field="organization">—</dd></div>
+              <div><dt>subscription</dt><dd data-field="subscription">—</dd></div>
+              <div><dt>tier</dt><dd data-field="tier">—</dd></div>
+            </dl>
+          </div>
+          <div class="settings__credential" data-credential="claude_desktop">
+            <div class="settings__credential-head">
+              <span class="settings__credential-name">Claude Desktop</span>
+              <span class="settings__credential-status" data-status>確認中…</span>
+            </div>
+            <dl class="settings__credential-meta">
+              <div><dt>organization</dt><dd data-field="organization">—</dd></div>
+              <div><dt>subscription</dt><dd data-field="subscription">—</dd></div>
+              <div><dt>tier</dt><dd data-field="tier">—</dd></div>
+            </dl>
+          </div>
+          <div class="settings__credential" data-credential="codex">
+            <div class="settings__credential-head">
+              <span class="settings__credential-name">Codex CLI</span>
+              <span class="settings__credential-status" data-status>確認中…</span>
+            </div>
+            <dl class="settings__credential-meta">
+              <div><dt>account</dt><dd data-field="organization">—</dd></div>
+              <div><dt>subscription</dt><dd data-field="subscription">—</dd></div>
+              <div><dt>tier</dt><dd data-field="tier">—</dd></div>
+            </dl>
+          </div>
+        </div>
+        <div class="settings__row settings__row--note">
+          <button id="credential-refresh" class="icon-btn icon-btn--small" type="button" title="認証情報を再読込">認証情報を再読込</button>
+        </div>
+      </section>
+
+      <section class="settings">
         <div class="settings__section-title">更新</div>
         <label class="settings__row">
           <span class="settings__label">データ取得間隔</span>

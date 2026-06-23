@@ -46,3 +46,80 @@ body {
 .settings__link[hidden] {
   display: none;
 }
+
+.settings__credentials {
+  display: grid;
+  gap: 8px;
+}
+
+.settings__credential {
+  padding: 8px;
+  border: 1px solid var(--divider);
+  border-radius: 6px;
+  background: var(--bar-bg);
+  min-width: 0;
+}
+
+.settings__credential-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  min-width: 0;
+}
+
+.settings__credential-name {
+  min-width: 0;
+  font-size: calc(11px * var(--text-scale));
+  font-weight: 700;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings__credential-status {
+  flex: 0 0 auto;
+  font-size: calc(10px * var(--text-scale));
+  color: var(--fg-dim);
+}
+
+.settings__credential[data-available="true"] .settings__credential-status {
+  color: var(--bar-fill-low);
+}
+
+.settings__credential[data-available="false"] .settings__credential-status {
+  color: var(--bar-fill-high);
+}
+
+.settings__credential-meta {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.settings__credential-meta div {
+  display: grid;
+  grid-template-columns: minmax(82px, 0.35fr) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settings__credential-meta dt {
+  margin: 0;
+  font-size: calc(10px * var(--text-scale));
+  color: var(--fg-dim);
+}
+
+.settings__credential-meta dd {
+  margin: 0;
+  min-width: 0;
+  font-size: calc(11px * var(--text-scale));
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}

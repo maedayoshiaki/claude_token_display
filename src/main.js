@@ -154,6 +154,7 @@ function renderProvider(providerKey, result) {
   if (!section) return;
   const body = section.querySelector("[data-body]");
   const errorEl = section.querySelector("[data-error]");
+  const snapshot = (result && result.snapshot) || {};
 
   // err と credential_restricted (403) はどちらも message をそのまま表示する。
   if (!result || result.kind === "err" || result.kind === "credential_restricted") {
@@ -177,7 +178,6 @@ function renderProvider(providerKey, result) {
   errorEl.hidden = true;
   errorEl.removeAttribute("title");
   body.hidden = false;
-  const snapshot = result.snapshot || {};
   const heroSection = section.querySelector('[data-bucket="five_hour"]');
   renderHeroBucket(heroSection, snapshot.five_hour);
 
@@ -360,9 +360,9 @@ async function refresh() {
   const btn = $("#refresh");
   if (btn) btn.disabled = true;
   try {
-    // バックエンドのポーラを叩き起こす。フェッチ完了時に
+    // 表示中の cache を破棄してからバックエンドのポーラを叩き起こす。フェッチ完了時に
     // usage-updated が emit され、popover / tray / cache が同時に更新される。
-    await invoke("refresh_now");
+    await invoke("reload_now");
   } catch (err) {
     console.error(err);
   } finally {

@@ -4,7 +4,7 @@
 //! 5 分おき (ユーザ設定で変更可) に自動更新。429 を受けたら Retry-After を尊重。
 
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem},
@@ -98,6 +98,7 @@ impl ScreenRect {
 
 /// 最後に成功 / 失敗した取得結果のキャッシュ。クリックや popover オープン時はこれを返す。
 type Cache = Arc<Mutex<AllUsage>>;
+static USAGE_CACHE: OnceLock<Cache> = OnceLock::new();
 
 fn loading_all_usage() -> AllUsage {
     AllUsage {
@@ -129,6 +130,7 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     )?;
 
     let cache: Cache = Arc::new(Mutex::new(loading_all_usage()));
+    let _ = USAGE_CACHE.set(cache.clone());
 
     let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))
         .expect("embedded tray icon should decode");
@@ -148,6 +150,7 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             "refresh" => {
                 let h = menu_handle.clone();
                 let c = menu_cache.clone();
+                update_cache_and_emit(&h, &c, loading_all_usage());
                 tauri::async_runtime::spawn(async move {
                     let result = fetch_all_usage().await;
                     update_cache_and_emit(&h, &c, result);
@@ -209,6 +212,13 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     });
 
     Ok(())
+}
+
+pub fn clear_cached_usage_and_reload<R: Runtime>(handle: &AppHandle<R>) {
+    if let Some(cache) = USAGE_CACHE.get() {
+        update_cache_and_emit(handle, cache, loading_all_usage());
+    }
+    poll_wake().notify_one();
 }
 
 fn current_popover_width<R: Runtime>(window: &tauri::WebviewWindow<R>) -> Option<f64> {
@@ -582,6 +592,7 @@ mod tests {
                     seven_day: Some(b(0.17)),
                     seven_day_sonnet: None,
                     fetched_at: Utc::now(),
+                    ..UsageSnapshot::default()
                 },
             },
             codex: FetchResult::Ok {
@@ -591,6 +602,7 @@ mod tests {
                     seven_day: Some(b(0.12)),
                     seven_day_sonnet: None,
                     fetched_at: Utc::now(),
+                    ..UsageSnapshot::default()
                 },
             },
         };

@@ -35,29 +35,54 @@ pub enum KeychainError {
 struct Payload {
     #[serde(rename = "claudeAiOauth")]
     claude_ai_oauth: Option<OAuth>,
+    #[serde(rename = "organizationUuid")]
+    organization_uuid: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct OAuth {
     #[serde(rename = "accessToken")]
     access_token: Option<String>,
+    #[serde(rename = "subscriptionType")]
+    subscription_type: Option<String>,
+    #[serde(rename = "rateLimitTier")]
+    rate_limit_tier: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+pub struct ClaudeCodeCredential {
+    pub access_token: String,
+    pub organization_uuid: Option<String>,
+    pub subscription_type: Option<String>,
+    pub rate_limit_tier: Option<String>,
+}
+
+#[allow(dead_code)]
 pub fn read_access_token() -> Result<String, KeychainError> {
+    read_credentials().map(|c| c.access_token)
+}
+
+pub fn read_credentials() -> Result<ClaudeCodeCredential, KeychainError> {
     // Claude Code がトークン更新時に `.credentials.json` を書き換える瞬間に当たると
     // NotFound / パース失敗になりうるので transient リトライする。
-    crate::read_with_retry(read_access_token_once, is_transient)
+    crate::read_with_retry(read_credentials_once, is_transient)
 }
 
-fn read_access_token_once() -> Result<String, KeychainError> {
+fn read_credentials_once() -> Result<ClaudeCodeCredential, KeychainError> {
     let raw = read_raw()?;
     let payload: Payload =
         serde_json::from_str(&raw).map_err(|e| KeychainError::Decode(e.to_string()))?;
-    payload
-        .claude_ai_oauth
-        .and_then(|o| o.access_token)
+    let oauth = payload.claude_ai_oauth.ok_or(KeychainError::EmptyToken)?;
+    let access_token = oauth
+        .access_token
         .filter(|t| !t.is_empty())
-        .ok_or(KeychainError::EmptyToken)
+        .ok_or(KeychainError::EmptyToken)?;
+    Ok(ClaudeCodeCredential {
+        access_token,
+        organization_uuid: payload.organization_uuid.filter(|s| !s.is_empty()),
+        subscription_type: oauth.subscription_type.filter(|s| !s.is_empty()),
+        rate_limit_tier: oauth.rate_limit_tier.filter(|s| !s.is_empty()),
+    })
 }
 
 fn is_transient(e: &KeychainError) -> bool {
