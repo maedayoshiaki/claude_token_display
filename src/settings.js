@@ -16,6 +16,8 @@ const WEEKLY_VISIBLE_KEY = "token_display_weekly_visible";
 const RESETS_VISIBLE_KEY = "token_display_resets_visible";
 const TRAY_METRIC_KEY = "token_display_tray_metric";
 const MINI_METRIC_KEY = "token_display_mini_metric";
+const TRAY_CLAUDE_KEY = "token_display_tray_claude";
+const TRAY_CODEX_KEY = "token_display_tray_codex";
 const UPDATE_INTERVAL_HOURS_KEY = "token_display_update_interval_hours";
 const THEME_KEY = "token_display_theme";
 const UPDATE_NOTIFY_KEY = "token_display_update_notify";
@@ -48,6 +50,8 @@ let showWeekly = true;
 let showResets = true;
 let trayMetric = "five_hour";
 let miniMetric = "five_hour";
+let trayShowClaude = true;
+let trayShowCodex = true;
 let widthValue = POPOVER_WIDTH_DEFAULT;
 
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
@@ -152,6 +156,8 @@ async function init() {
   } catch {
     miniMetric = "five_hour";
   }
+  trayShowClaude = getBool(TRAY_CLAUDE_KEY, true);
+  trayShowCodex = getBool(TRAY_CODEX_KEY, true);
 
   const storedInterval = localStorage.getItem(INTERVAL_MIN_KEY);
   intervalMin =
@@ -188,6 +194,8 @@ function renderControls() {
   $("#update-notify-toggle").checked = updateNotify;
   $("#tray-metric-select").value = trayMetric;
   $("#mini-metric-select").value = miniMetric;
+  $("#tray-claude-toggle").checked = trayShowClaude;
+  $("#tray-codex-toggle").checked = trayShowCodex;
   refreshScaleButtons();
 }
 
@@ -404,5 +412,78 @@ $("#mini-metric-select").addEventListener("change", (e) => {
   setStr(MINI_METRIC_KEY, miniMetric);
   broadcast();
 });
+
+// トレイのプロバイダ表示 (ポップオーバーの表示トグルとは独立)。バックエンドが
+// トレイ title / tooltip を描画するので、broadcast ではなくコマンドで反映する。
+async function pushTrayProviders() {
+  try {
+    await invoke("set_tray_providers", {
+      claude: trayShowClaude,
+      codex: trayShowCodex,
+    });
+  } catch (e) {
+    console.error(e);
+  }
+}
+$("#tray-claude-toggle").addEventListener("change", (e) => {
+  trayShowClaude = e.target.checked;
+  setBool(TRAY_CLAUDE_KEY, trayShowClaude);
+  pushTrayProviders();
+});
+$("#tray-codex-toggle").addEventListener("change", (e) => {
+  trayShowCodex = e.target.checked;
+  setBool(TRAY_CODEX_KEY, trayShowCodex);
+  pushTrayProviders();
+});
+
+// ───── レート制限を無視して更新 / API アクセス状況 ─────
+function formatAccessTime(ms) {
+  if (!ms) return "—";
+  try {
+    return new Date(ms).toLocaleTimeString();
+  } catch {
+    return "—";
+  }
+}
+
+async function renderAccessStats() {
+  const el = $("#access-stats");
+  if (!el) return;
+  try {
+    const s = await invoke("get_access_stats");
+    const mins = Math.round((s.poll_interval_secs || 0) / 60);
+    const last = s.last_access_ms
+      ? `最終取得 ${formatAccessTime(s.last_access_ms)}`
+      : "まだ取得していません";
+    el.textContent =
+      `API アクセス状況: 累計 ${s.total} 回 / 直近1時間 ${s.last_hour} 回 / ${last}（自動取得 約${mins}分間隔）`;
+  } catch {
+    // 古いバックエンドなど: 表示しない
+    el.textContent = "API アクセス状況: 取得できません";
+  }
+}
+
+$("#force-reload-now").addEventListener("click", async () => {
+  const btn = $("#force-reload-now");
+  btn.disabled = true;
+  try {
+    await invoke("force_reload_now");
+  } catch (e) {
+    console.error(e);
+  } finally {
+    // ポーラが実際に叩くまで少し待ってから統計を更新する。
+    setTimeout(() => {
+      renderAccessStats();
+      btn.disabled = false;
+    }, 1500);
+  }
+});
+
+// 開いている間は数秒ごとに更新 (自動取得や他操作での増加を反映)。非表示時は叩かない。
+renderAccessStats();
+setInterval(() => {
+  if (document.visibilityState !== "hidden") renderAccessStats();
+}, 5000);
+window.addEventListener("focus", renderAccessStats);
 
 init();

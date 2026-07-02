@@ -28,6 +28,12 @@ static POPOVER_AUTO_HIDE_SUPPRESSED_UNTIL_MS: AtomicI64 = AtomicI64::new(0);
 /// 現在のプロバイダ。`Provider::as_u8` で AtomicU8 に格納。
 static CURRENT_PROVIDER: AtomicU8 = AtomicU8::new(Provider::CLAUDE_U8);
 
+/// トレイ (メニューバー / タスクトレイ) に各プロバイダを表示するか。ポップオーバーの
+/// 表示トグルとは独立した設定。既定は両方表示。フロント (localStorage) が真の値を持ち、
+/// 起動時に popover 側から set_tray_providers で反映される。
+static TRAY_SHOW_CLAUDE: AtomicBool = AtomicBool::new(true);
+static TRAY_SHOW_CODEX: AtomicBool = AtomicBool::new(true);
+
 /// ポーラの待ち秒数 (ユーザ設定)。`tray.rs` のループが各イテレーションでこの値を読む。
 pub const MIN_POLL_INTERVAL_SECS: u64 = 60;
 pub const MAX_POLL_INTERVAL_SECS: u64 = 3_600;
@@ -97,6 +103,58 @@ pub fn wake_poller_no_fetch() {
 /// ポーラが wake 時に呼ぶ: フェッチ要求フラグを取り出してクリアする。
 pub fn take_poll_fetch_request() -> bool {
     POLL_FORCE_FETCH.swap(false, Ordering::SeqCst)
+}
+
+/// 「レート制限を無視して即時更新」フラグ。true のとき、ポーラは最小フェッチ間隔
+/// (MIN_MANUAL_FETCH_SPACING_MS) や 429/403 のバックオフ待ちを飛ばして即座に取得する。
+static POLL_FORCE_IMMEDIATE: AtomicBool = AtomicBool::new(false);
+
+/// レート制限を無視した即時更新を要求する (フェッチ要求も立ててポーラを起こす)。
+pub fn request_force_immediate_fetch() {
+    POLL_FORCE_IMMEDIATE.store(true, Ordering::SeqCst);
+    POLL_FORCE_FETCH.store(true, Ordering::SeqCst);
+    poll_wake_internal().notify_one();
+}
+
+/// ポーラが wake 時に呼ぶ: 即時更新フラグを取り出してクリアする。
+pub fn take_poll_force_immediate() -> bool {
+    POLL_FORCE_IMMEDIATE.swap(false, Ordering::SeqCst)
+}
+
+/// usage API への実アクセス数の記録。ユーザーが「どれくらい叩いたか」を把握できるよう
+/// 設定画面に注意書きとして表示する。total は起動以降の累計、log は直近 1 時間の
+/// タイムスタンプ (ms)、last は最後のアクセス時刻 (ms, 0=未取得)。
+static API_ACCESS_TOTAL: AtomicU64 = AtomicU64::new(0);
+static API_LAST_ACCESS_MS: AtomicI64 = AtomicI64::new(0);
+static API_ACCESS_LOG: OnceLock<std::sync::Mutex<Vec<i64>>> = OnceLock::new();
+const ONE_HOUR_MS: i64 = 3_600_000;
+
+/// usage API (Claude / Codex) へ実際に HTTP リクエストを送るたびに api.rs / codex.rs から呼ぶ。
+pub fn record_api_access() {
+    API_ACCESS_TOTAL.fetch_add(1, Ordering::SeqCst);
+    let now = now_ms();
+    API_LAST_ACCESS_MS.store(now, Ordering::SeqCst);
+    let log = API_ACCESS_LOG.get_or_init(|| std::sync::Mutex::new(Vec::new()));
+    if let Ok(mut v) = log.lock() {
+        v.push(now);
+        let cutoff = now - ONE_HOUR_MS;
+        v.retain(|&t| t >= cutoff);
+    }
+}
+
+fn access_stats() -> AccessStats {
+    let now = now_ms();
+    let cutoff = now - ONE_HOUR_MS;
+    let last_hour = API_ACCESS_LOG
+        .get()
+        .and_then(|m| m.lock().ok().map(|v| v.iter().filter(|&&t| t >= cutoff).count()))
+        .unwrap_or(0);
+    AccessStats {
+        total: API_ACCESS_TOTAL.load(Ordering::SeqCst),
+        last_hour: last_hour as u64,
+        last_access_ms: API_LAST_ACCESS_MS.load(Ordering::SeqCst),
+        poll_interval_secs: current_poll_interval_secs(),
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -188,6 +246,22 @@ pub struct Settings {
     pub poll_interval_secs: u64,
     pub tray_metric: TrayMetric,
     pub update_check_interval_secs: u64,
+    /// トレイに各プロバイダを表示するか (ポップオーバーの表示トグルとは独立)。
+    pub tray_show_claude: bool,
+    pub tray_show_codex: bool,
+}
+
+/// usage API への実アクセス状況。設定画面に「どれくらい叩いたか」の注意書きとして出す。
+#[derive(Serialize, Clone, Debug)]
+pub struct AccessStats {
+    /// 起動以降の累計アクセス数 (Claude / Codex の HTTP リクエストを個別に数える)。
+    pub total: u64,
+    /// 直近 1 時間のアクセス数。
+    pub last_hour: u64,
+    /// 最後にアクセスした時刻 (epoch ms)。0 = まだ取得していない。
+    pub last_access_ms: i64,
+    /// 現在の自動取得間隔 (秒)。目安表示用。
+    pub poll_interval_secs: u64,
 }
 
 /// 全プロバイダの取得結果をまとめたもの。ポップオーバーはこの構造をそのまま受け取って描画する。
@@ -238,6 +312,21 @@ fn refresh_now() {
 #[tauri::command]
 fn reload_now(app: tauri::AppHandle) {
     tray::clear_cached_usage_and_reload(&app);
+}
+
+/// レート制限保護 (最小フェッチ間隔・429/403 バックオフ待ち) を無視して即時取得する。
+/// 設定画面の「レート制限を無視して更新」ボタン用。多用すると 429 を招くので注意。
+#[tauri::command]
+fn force_reload_now(app: tauri::AppHandle) {
+    // 先に即時フラグを立ててから wake する (起こされたポーラが確実に見えるように)。
+    request_force_immediate_fetch();
+    tray::clear_cached_usage_and_reload(&app);
+}
+
+/// usage API のアクセス状況 (累計 / 直近1時間 / 最終取得) を返す。
+#[tauri::command]
+fn get_access_stats() -> AccessStats {
+    access_stats()
 }
 
 #[tauri::command]
@@ -405,6 +494,8 @@ fn get_settings() -> Settings {
         poll_interval_secs: POLL_INTERVAL_SECS.load(Ordering::SeqCst),
         tray_metric: current_tray_metric(),
         update_check_interval_secs: current_update_check_interval_secs(),
+        tray_show_claude: tray_shows_claude(),
+        tray_show_codex: tray_shows_codex(),
     }
 }
 
@@ -437,6 +528,15 @@ fn set_provider(provider: Provider) -> Settings {
 }
 
 #[tauri::command]
+fn set_tray_providers(claude: bool, codex: bool) -> Settings {
+    TRAY_SHOW_CLAUDE.store(claude, Ordering::SeqCst);
+    TRAY_SHOW_CODEX.store(codex, Ordering::SeqCst);
+    // 表示切替はキャッシュ済みスナップショットから再描画するだけ。API は叩かない。
+    wake_poller_no_fetch();
+    get_settings()
+}
+
+#[tauri::command]
 fn set_poll_interval(secs: u64) -> Settings {
     let clamped = secs.clamp(MIN_POLL_INTERVAL_SECS, MAX_POLL_INTERVAL_SECS);
     POLL_INTERVAL_SECS.store(clamped, Ordering::SeqCst);
@@ -463,6 +563,14 @@ pub fn current_poll_interval_secs() -> u64 {
 
 pub fn current_tray_metric() -> TrayMetric {
     TrayMetric::from_u8(TRAY_METRIC.load(Ordering::SeqCst))
+}
+
+pub fn tray_shows_claude() -> bool {
+    TRAY_SHOW_CLAUDE.load(Ordering::SeqCst)
+}
+
+pub fn tray_shows_codex() -> bool {
+    TRAY_SHOW_CODEX.load(Ordering::SeqCst)
 }
 
 pub fn poll_wake() -> Arc<Notify> {
@@ -790,6 +898,8 @@ pub fn run() {
             get_usage,
             refresh_now,
             reload_now,
+            force_reload_now,
+            get_access_stats,
             get_credential_info,
             get_popover_pinned,
             set_popover_pinned,
@@ -799,6 +909,7 @@ pub fn run() {
             open_settings_window,
             get_settings,
             set_provider,
+            set_tray_providers,
             set_poll_interval,
             set_tray_metric,
             set_update_check_interval,

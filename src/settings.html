@@ -122,6 +122,16 @@
             <span class="settings__suffix">分</span>
           </span>
         </label>
+        <div class="settings__row">
+          <span class="settings__label">今すぐ取得</span>
+          <button id="force-reload-now" class="icon-btn icon-btn--small" type="button" title="最小取得間隔やレート制限(429)の待機を無視して、いますぐ usage API を取得します">レート制限を無視して更新</button>
+        </div>
+        <div class="settings__row settings__row--note">
+          <span id="access-stats" class="settings__note">API アクセス状況: 取得中…</span>
+        </div>
+        <div class="settings__row settings__row--note">
+          <span class="settings__note settings__note--warn">※ 手動での連続取得は Anthropic 側のレート制限 (429) を招くことがあります。通常は自動取得（上の間隔）に任せてください。</span>
+        </div>
         <label class="settings__row">
           <span class="settings__label">アプリ更新確認</span>
           <span class="settings__inline">
@@ -150,6 +160,14 @@
             <option value="five_hour">5h セッション</option>
             <option value="weekly">週間</option>
           </select>
+        </label>
+        <label class="settings__row">
+          <span class="settings__label">トレイに Claude</span>
+          <input id="tray-claude-toggle" type="checkbox" class="settings__control settings__control--check" />
+        </label>
+        <label class="settings__row">
+          <span class="settings__label">トレイに Codex</span>
+          <input id="tray-codex-toggle" type="checkbox" class="settings__control settings__control--check" />
         </label>
         <label class="settings__row">
           <span class="settings__label">極小ウィンドウ</span>

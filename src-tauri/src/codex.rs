@@ -139,6 +139,8 @@ pub async fn fetch_usage(creds: &CodexCredentials) -> Result<UsageSnapshot, ApiE
         req = req.header("ChatGPT-Account-Id", account_id);
     }
 
+    // 実際に usage API を叩くのでアクセス数として記録する (設定画面の注意書き用)。
+    crate::record_api_access();
     let resp = req
         .send()
         .await

@@ -151,9 +151,9 @@ body[data-update-available="true"][data-density="condensed"] .update-mark {
 }
 body[data-update-available="true"][data-density="minimal"] .update-mark {
   display: inline-flex;
-  min-width: 16px;
-  width: 16px;
-  height: 20px;
+  min-width: 15px;
+  width: 15px;
+  height: 15px;
 }
 
 .card__header {
@@ -339,12 +339,13 @@ body[data-pinned="true"] .card {
   margin-bottom: 4px;
 }
 
+/* 既定では % の下にリセット時刻を縦に並べる (時間は % の下)。
+   condensed / minimal は各自 display/flex-direction を上書きするので影響しない。 */
 .bucket__row {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 4px 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
   margin-bottom: 6px;
 }
 
@@ -448,9 +449,12 @@ body[data-show-bar="false"] .bucket--hero .bucket__row {
   margin-bottom: 0;
 }
 
-/* プロバイダ表示切り替え */
-body[data-show-claude="false"] .provider[data-provider="claude"] { display: none; }
-body[data-show-codex="false"] .provider[data-provider="codex"] { display: none; }
+/* プロバイダ表示切り替え。
+   condensed / minimal 密度の `.provider + .provider { display: flex }` (詳細度 0,3,1) と
+   同点になり、後勝ちで Codex (2 番目の provider) が再表示されてしまうため、
+   --show-weekly / --show-resets と同様に !important で確実に隠す。 */
+body[data-show-claude="false"] .provider[data-provider="claude"] { display: none !important; }
+body[data-show-codex="false"] .provider[data-provider="codex"] { display: none !important; }
 
 /* 週間使用率非表示 */
 body[data-show-weekly="false"] .bucket--compact { display: none !important; }
@@ -875,7 +879,7 @@ body[data-density="minimal"] .header-actions {
   align-items: flex-end;
   width: auto;
   margin-left: 0;
-  gap: 1px;
+  gap: 0;
 }
 
 /* refresh / settings は平常は隠し、card を hover / フォーカスしたときだけ
@@ -892,11 +896,11 @@ body[data-density="minimal"] .card:focus-within #refresh {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 16px;
-  width: 16px;
-  height: 20px;
+  min-width: 15px;
+  width: 15px;
+  height: 15px;
   padding: 0;
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1;
   border-radius: 4px 0 0 4px;
   background: var(--bg);
@@ -907,12 +911,12 @@ body[data-density="minimal"] #pin {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 16px;
-  width: 16px;
-  height: 20px;
+  min-width: 15px;
+  width: 15px;
+  height: 15px;
   padding: 0;
   border-radius: 4px 0 0 4px;
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1;
   background: var(--bar-bg);
 }
@@ -1000,6 +1004,19 @@ body[data-density="minimal"][data-mini-metric="both"] .bucket__pct--compact::bef
   line-height: 1;
   opacity: 0.6;
   margin-right: 1px;
+}
+
+/* weekly を併記する (both / weekly) 極小モードでは、見出し (CLAUDE / CODEX) を横に
+   置くと幅を食って weekly がはみ出すので、指標の上に縦に積んで横幅を節約する。 */
+body[data-density="minimal"][data-mini-metric="both"] .provider,
+body[data-density="minimal"][data-mini-metric="weekly"] .provider {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+body[data-density="minimal"][data-mini-metric="both"] .provider__name,
+body[data-density="minimal"][data-mini-metric="weekly"] .provider__name {
+  max-width: none;
 }
 
 body[data-density="minimal"] #content {
@@ -1305,7 +1322,7 @@ body[data-show-resets="true"][data-density="condensed"][data-density-resets="tru
 }
 
 body[data-show-resets="true"][data-density="minimal"][data-density-resets="true"] #content {
-  gap: 5px;
+  gap: 3px;
 }
 
 body[data-show-resets="true"][data-density="minimal"][data-density-resets="true"] .provider,
@@ -1339,7 +1356,140 @@ body[data-show-resets="true"][data-density="minimal"][data-density-resets="true"
   display: block !important;
   flex: 0 0 auto;
   max-width: 9ch;
-  font-size: 8px;
+  font-size: 7px;
   line-height: 1;
   text-align: left;
+}
+
+/* ───────── 横並び (1 行 2 列) レイアウト ─────────
+   Claude / Codex を左右 2 列に並べる横長の帯。各列は [見出し] [% + 時間] [週間] を
+   横方向に並べ、フォントは帯向けに小さめにする。密度は JS 側で compact 固定
+   (condensed/minimal の縦積みレイアウトが干渉しないように) にしてあり、ここで
+   帯用のフォント・並びをまとめて指定する。 */
+
+/* #content を横方向 2 列に。中身は縦中央そろえ。 */
+body[data-layout="cols"] #content {
+  display: flex;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+  padding: 2px 0;
+}
+
+/* 各列: 見出し + 本体を横並び (ベースライン揃え)。区切りは縦罫線。 */
+body[data-layout="cols"] .provider {
+  flex: 1 1 0 !important;
+  min-width: 0;
+  margin: 0 !important;
+  padding: 0 !important;
+  border-top: none !important;
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 6px;
+}
+body[data-layout="cols"] .provider + .provider {
+  border-left: 1px solid var(--divider) !important;
+  padding-left: 10px !important;
+}
+
+/* 見出し CLAUDE / CODEX は % の左に小さく */
+body[data-layout="cols"] .provider__head {
+  flex: 0 0 auto;
+}
+body[data-layout="cols"] .provider__name {
+  font-size: calc(8.5px * var(--text-scale));
+  max-width: none;
+}
+
+/* 本体: hero (% + 時間) と weekly を横に */
+body[data-layout="cols"] .provider__body {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 帯では "SESSION (5H)" 見出しとバーは省く */
+body[data-layout="cols"] .bucket__title,
+body[data-layout="cols"] .bucket--hero .bar {
+  display: none;
+}
+
+/* hero: % を小さめ (帯用) に、時間はその下 */
+body[data-layout="cols"] .bucket--hero {
+  flex: 0 0 auto;
+  padding: 0;
+}
+body[data-layout="cols"] .bucket__row {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  margin: 0;
+}
+body[data-layout="cols"] .bucket__pct {
+  font-size: calc(14px * var(--text-scale));
+  line-height: 1.15;
+}
+body[data-layout="cols"] .bucket__resets {
+  font-size: calc(8.5px * var(--text-scale));
+  line-height: 1.1;
+  text-align: left;
+}
+
+/* weekly: hero の右。小さめ。自身のリセット時刻は hero と重複するので隠す。 */
+body[data-layout="cols"] .bucket--compact {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 0;
+  border-top: none;
+  font-size: calc(8.5px * var(--text-scale));
+}
+body[data-layout="cols"] .bucket--compact .bucket__resets--compact {
+  display: none;
+}
+
+/* weekly は幅で出し分け: 狭い列では隠して % + 時間を優先。 */
+body[data-layout="cols"][data-cols-weekly="false"] .bucket--compact {
+  display: none !important;
+}
+
+/* アイコン: 右上に横並びのオーバーレイ。普段は隠して文字と重ならないようにし、
+   card を hover / フォーカスしたときだけ出す。 */
+body[data-layout="cols"] .card__header {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  left: auto;
+  bottom: auto;
+  transform: none;
+  margin: 0;
+  z-index: 3;
+  width: auto;
+  justify-content: flex-end;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+body[data-layout="cols"] .card:hover .card__header,
+body[data-layout="cols"] .card:focus-within .card__header {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* hover 時にアイコンが乗る背景を敷いて、下の文字と重なっても読めるようにする。 */
+body[data-layout="cols"] .card:hover .header-actions,
+body[data-layout="cols"] .card:focus-within .header-actions {
+  background: var(--bg);
+  border-radius: 6px;
+  padding: 1px 2px;
+}
+body[data-layout="cols"] .header-actions {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+}
+body[data-layout="cols"] .card {
+  padding: 6px 10px;
 }

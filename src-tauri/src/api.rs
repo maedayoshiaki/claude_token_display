@@ -192,6 +192,8 @@ pub async fn fetch_usage(access_token: &str) -> Result<UsageSnapshot, ApiError> 
         .build()
         .map_err(|e| ApiError::Network(e.to_string()))?;
 
+    // 実際に usage API を叩くのでアクセス数として記録する (設定画面の注意書き用)。
+    crate::record_api_access();
     let resp = client
         .get(USAGE_URL)
         .bearer_auth(access_token)

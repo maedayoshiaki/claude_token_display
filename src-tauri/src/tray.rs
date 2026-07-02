@@ -223,9 +223,11 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
                 if !take_poll_fetch_request() {
                     continue;
                 }
-                // 手動リフレッシュでも直前フェッチから間隔が短すぎるときはネットワークを
+                // 「レート制限を無視して更新」時は最小間隔チェックを飛ばして必ず取得する。
+                let force_immediate = crate::take_poll_force_immediate();
+                // 通常の手動リフレッシュは直前フェッチから間隔が短すぎるとネットワークを
                 // 叩かず直近結果を描画し直す。reload_now が置いた "Loading…" もここで実データに戻る。
-                if now_ms() - last_fetch_ms < MIN_MANUAL_FETCH_SPACING_MS {
+                if !force_immediate && now_ms() - last_fetch_ms < MIN_MANUAL_FETCH_SPACING_MS {
                     continue;
                 }
             }
@@ -307,22 +309,34 @@ fn update_cache_and_emit<R: Runtime>(handle: &AppHandle<R>, cache: &Cache, resul
 }
 
 fn update_tray<R: Runtime>(tray: &tauri::tray::TrayIcon<R>, all: &AllUsage) {
-    let title = format_dual_title(all);
-    let tooltip = format_dual_tooltip(all);
+    let show_claude = crate::tray_shows_claude();
+    let show_codex = crate::tray_shows_codex();
+    let title = format_dual_title(all, show_claude, show_codex);
+    let tooltip = format_dual_tooltip(all, show_claude, show_codex);
     let _ = tray.set_title(Some(title));
     let _ = tray.set_tooltip(Some(tooltip));
 }
 
-/// トレイ title は両プロバイダのメトリクスを併記: `C 43% · X 30%`。
+/// トレイ title は表示中のプロバイダのメトリクスを併記: `C 43% · X 30%`。
 /// 片方しかログインしていない場合は失敗側を `!` に。両方失敗で `!`。
-fn format_dual_title(all: &AllUsage) -> String {
+/// 片方だけ表示 (トレイ設定で非表示) のときは接頭辞なしの数字のみ (`43%`)。
+/// 両方非表示なら空文字 (アイコンのみ)。
+fn format_dual_title(all: &AllUsage, show_claude: bool, show_codex: bool) -> String {
     let metric = current_tray_metric();
-    let c = short_status(&all.claude, metric);
-    let x = short_status(&all.codex, metric);
-    if c == "!" && x == "!" {
-        return "!".to_string();
+    match (show_claude, show_codex) {
+        (true, true) => {
+            let c = short_status(&all.claude, metric);
+            let x = short_status(&all.codex, metric);
+            if c == "!" && x == "!" {
+                "!".to_string()
+            } else {
+                format!("C {} · X {}", c, x)
+            }
+        }
+        (true, false) => short_status(&all.claude, metric),
+        (false, true) => short_status(&all.codex, metric),
+        (false, false) => String::new(),
     }
-    format!("C {} · X {}", c, x)
 }
 
 fn short_status(r: &FetchResult, metric: TrayMetric) -> String {
@@ -342,10 +356,19 @@ fn short_status(r: &FetchResult, metric: TrayMetric) -> String {
     }
 }
 
-fn format_dual_tooltip(all: &AllUsage) -> String {
-    let claude = provider_tooltip_line(Provider::Claude, &all.claude);
-    let codex = provider_tooltip_line(Provider::Codex, &all.codex);
-    format!("{}\n{}", claude, codex)
+fn format_dual_tooltip(all: &AllUsage, show_claude: bool, show_codex: bool) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    if show_claude {
+        lines.push(provider_tooltip_line(Provider::Claude, &all.claude));
+    }
+    if show_codex {
+        lines.push(provider_tooltip_line(Provider::Codex, &all.codex));
+    }
+    if lines.is_empty() {
+        "token_display".to_string()
+    } else {
+        lines.join("\n")
+    }
 }
 
 fn provider_label(p: Provider) -> &'static str {
@@ -632,7 +655,7 @@ mod tests {
                 },
             },
         };
-        assert_eq!(format_dual_title(&all), "C 43% · X 30%");
+        assert_eq!(format_dual_title(&all, true, true), "C 43% · X 30%");
     }
 
     #[test]
@@ -650,7 +673,7 @@ mod tests {
                 message: "not logged in".into(),
             },
         };
-        assert_eq!(format_dual_title(&all), "C 43% · X !");
+        assert_eq!(format_dual_title(&all, true, true), "C 43% · X !");
     }
 
     #[test]
@@ -665,7 +688,57 @@ mod tests {
                 message: "y".into(),
             },
         };
-        assert_eq!(format_dual_title(&all), "!");
+        assert_eq!(format_dual_title(&all, true, true), "!");
+    }
+
+    #[test]
+    fn title_hides_codex_when_tray_codex_off() {
+        let all = AllUsage {
+            claude: FetchResult::Ok {
+                provider: Provider::Claude,
+                snapshot: UsageSnapshot {
+                    five_hour: Some(b(0.43)),
+                    ..UsageSnapshot::default()
+                },
+            },
+            codex: FetchResult::Ok {
+                provider: Provider::Codex,
+                snapshot: UsageSnapshot {
+                    five_hour: Some(b(0.30)),
+                    ..UsageSnapshot::default()
+                },
+            },
+        };
+        // Codex 非表示: 接頭辞なしで Claude の数字のみ。
+        assert_eq!(format_dual_title(&all, true, false), "43%");
+        // Claude 非表示: Codex の数字のみ。
+        assert_eq!(format_dual_title(&all, false, true), "30%");
+        // 両方非表示: 空 (アイコンのみ)。
+        assert_eq!(format_dual_title(&all, false, false), "");
+    }
+
+    #[test]
+    fn tooltip_hides_lines_for_hidden_providers() {
+        let all = AllUsage {
+            claude: FetchResult::Ok {
+                provider: Provider::Claude,
+                snapshot: UsageSnapshot {
+                    five_hour: Some(b(0.43)),
+                    ..UsageSnapshot::default()
+                },
+            },
+            codex: FetchResult::Ok {
+                provider: Provider::Codex,
+                snapshot: UsageSnapshot {
+                    five_hour: Some(b(0.30)),
+                    ..UsageSnapshot::default()
+                },
+            },
+        };
+        let tip = format_dual_tooltip(&all, true, false);
+        assert!(tip.contains("Claude"));
+        assert!(!tip.contains("Codex"));
+        assert_eq!(format_dual_tooltip(&all, false, false), "token_display");
     }
 
     #[test]
@@ -695,7 +768,7 @@ mod tests {
                 },
             },
         };
-        assert_eq!(format_dual_title(&all), "C ! · X 30%");
+        assert_eq!(format_dual_title(&all, true, true), "C ! · X 30%");
     }
 
     #[test]

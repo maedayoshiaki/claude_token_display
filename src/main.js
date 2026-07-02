@@ -16,6 +16,8 @@ const WEEKLY_VISIBLE_KEY = "token_display_weekly_visible";
 const RESETS_VISIBLE_KEY = "token_display_resets_visible";
 const TRAY_METRIC_KEY = "token_display_tray_metric";
 const MINI_METRIC_KEY = "token_display_mini_metric";
+const TRAY_CLAUDE_KEY = "token_display_tray_claude";
+const TRAY_CODEX_KEY = "token_display_tray_codex";
 const UPDATE_DISMISSED_KEY = "token_display_update_dismissed";
 const UPDATE_INTERVAL_HOURS_KEY = "token_display_update_interval_hours";
 const THEME_KEY = "token_display_theme";
@@ -24,14 +26,27 @@ const UPDATE_NOTIFY_KEY = "token_display_update_notify";
 const TEXT_SCALE_MIN = 0.6;
 const TEXT_SCALE_MAX = 2.0;
 const TEXT_SCALE_STEP = 0.05;
-const COMPACT_WIDTH_MAX = 240;
-const COMPACT_HEIGHT_MAX = 160;
-const CONDENSED_WIDTH_MAX = 170;
-const CONDENSED_HEIGHT_MAX = 96;
+// compact = 「中モード」(バー/フッタは省くが %・週間・リセット時刻は見える)。
+// full に切り替わる上限 (COMPACT_*_MAX) を広めに、condensed に落ちる下限
+// (CONDENSED_*_MAX) を低めに取り、compact が効く範囲を広げている。
+const COMPACT_WIDTH_MAX = 280;
+const COMPACT_HEIGHT_MAX = 210;
+const CONDENSED_WIDTH_MAX = 155;
+const CONDENSED_HEIGHT_MAX = 84;
 const MINIMAL_WIDTH_MAX = 132;
 const MINIMAL_HEIGHT_MAX = 64;
 const CONDENSED_RESETS_HEIGHT_MIN = 88;
-const MINIMAL_RESETS_HEIGHT_MIN = 64;
+// 極小モードでリセット時刻 (%の下) を出す最小の高さ。プロバイダを 1 つだけ表示している
+// ときは行が半分で済むので、より低い高さから時刻を出せる。
+const MINIMAL_RESETS_HEIGHT_MIN = 58;
+const MINIMAL_RESETS_HEIGHT_MIN_SOLO = 34;
+// 横並び (1 行 2 列) に切り替える条件。ウィンドウが「横長で、縦に 2 つ積むには低い」
+// ときに Claude / Codex を左右に並べる。両方表示中のときだけ有効。
+const TWO_COL_MIN_WIDTH = 170;
+const TWO_COL_MAX_HEIGHT = 200;
+// 横並びでは weekly を hero (%+時間) の右に横並びにする。列がこの幅以上あるときだけ
+// weekly を出す (幅で判定)。狭いときは hero だけにして % と時間を優先表示する。
+const TWO_COL_WEEKLY_MIN_WIDTH = 330;
 const POPOVER_WIDTH_MIN = 1;
 const POPOVER_WIDTH_MAX = 640;
 const POPOVER_WIDTH_STEP = 24;
@@ -63,6 +78,8 @@ let lastAllUsage = null; // 最後に描画した payload (トグル反映の再
 let latestUpdateInfo = null; // 直近の更新情報 (バナー / マーク / data-update-available の単一ソース)
 let currentDensity = "";
 let currentDensityResets = "";
+let currentLayout = "";
+let currentColsWeekly = "";
 
 function levelOf(util) {
   if (util < 0.5) return "low";
@@ -223,9 +240,17 @@ function densityForSize(width, height) {
   return "full";
 }
 
+// ちょうど 1 つのプロバイダだけ表示しているか (もう片方は非表示)。
+function isSoloProvider() {
+  return showClaude !== showCodex;
+}
+
 function densityResetsForSize(density, height) {
   if (density === "minimal") {
-    return height >= MINIMAL_RESETS_HEIGHT_MIN;
+    const min = isSoloProvider()
+      ? MINIMAL_RESETS_HEIGHT_MIN_SOLO
+      : MINIMAL_RESETS_HEIGHT_MIN;
+    return height >= min;
   }
   if (density === "condensed") {
     return height >= CONDENSED_RESETS_HEIGHT_MIN;
@@ -233,11 +258,47 @@ function densityResetsForSize(density, height) {
   return false;
 }
 
+// 極小モードで実際に body に反映する mini-metric。プロバイダを 1 つだけ表示しているときは
+// 横に余裕ができるので、既定 (5h のみ) でも weekly を併記する "both" 表示に切り替える。
+// ユーザーが明示的に weekly / both を選んでいる場合はその設定を尊重する。
+function effectiveMiniMetric() {
+  if (isSoloProvider() && miniMetric === "five_hour") return "both";
+  return miniMetric;
+}
+
+function applyMiniMetric() {
+  document.body.dataset.miniMetric = effectiveMiniMetric();
+}
+
+// 横並び (cols) か縦積み (rows) か。両方のプロバイダを表示していて、かつウィンドウが
+// 横長で低い (縦に積むとき窮屈になる) ときだけ左右 2 列にする。1 つしか表示していない
+// ときは 2 列にする意味がないので rows のまま。各列の中身の密度は従来どおり
+// densityForSize が面積 (全高) から決めるので、狭く / 低くなれば列ごとに condensed →
+// minimal と自然に縮む。
+function layoutForSize(width, height) {
+  if (
+    showClaude &&
+    showCodex &&
+    width >= TWO_COL_MIN_WIDTH &&
+    height <= TWO_COL_MAX_HEIGHT
+  ) {
+    return "cols";
+  }
+  return "rows";
+}
+
 function updateDensity() {
-  const density = densityForSize(window.innerWidth, window.innerHeight);
-  const densityResets = String(
-    densityResetsForSize(density, window.innerHeight)
-  );
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  const layout = layoutForSize(w, h);
+  let density = densityForSize(w, h);
+  // 横並びは横方向レイアウトなので、高さが低くても condensed/minimal に落とさず compact
+  // 固定にする。これで condensed の「リセット時刻を隠す」が効かず、時間が確実に出る。
+  if (layout === "cols") density = "compact";
+  const densityResets = String(densityResetsForSize(density, h));
+  // 横並びでは weekly を hero の右に横並びにするので、幅で出し分ける (それ以外は "true")。
+  const colsWeekly =
+    layout === "cols" ? String(w >= TWO_COL_WEEKLY_MIN_WIDTH) : "true";
   if (density !== currentDensity) {
     currentDensity = density;
     document.body.dataset.density = density;
@@ -245,6 +306,14 @@ function updateDensity() {
   if (densityResets !== currentDensityResets) {
     currentDensityResets = densityResets;
     document.body.dataset.densityResets = densityResets;
+  }
+  if (layout !== currentLayout) {
+    currentLayout = layout;
+    document.body.dataset.layout = layout;
+  }
+  if (colsWeekly !== currentColsWeekly) {
+    currentColsWeekly = colsWeekly;
+    document.body.dataset.colsWeekly = colsWeekly;
   }
 }
 
@@ -494,7 +563,6 @@ function applyViewSettings(s) {
   }
   if (typeof s.miniMetric === "string") {
     miniMetric = s.miniMetric;
-    document.body.dataset.miniMetric = miniMetric;
   }
   if (typeof s.theme === "string") {
     applyTheme(s.theme);
@@ -505,6 +573,10 @@ function applyViewSettings(s) {
   if (s.textScale != null && Number.isFinite(Number(s.textScale))) {
     renderTextScale(Number(s.textScale));
   }
+  // Claude / Codex の表示切り替えは横並び成立条件 (両方表示) と極小の mini-metric
+  // (1つ表示なら weekly 併記) に影響するので再判定する。
+  updateDensity();
+  applyMiniMetric();
   rerender();
   // 更新通知の状態変化をバナー/マークに反映する。
   if (!updateNotify) {
@@ -538,6 +610,8 @@ async function initSettings() {
   document.body.dataset.showCodex = String(showCodex);
   document.body.dataset.showWeekly = String(showWeekly);
   document.body.dataset.showResets = String(showResets);
+  // 読み込んだ表示状態で横並び / 縦積みを再判定 (初期の updateDensity は既定値で走るため)。
+  updateDensity();
 
   // 小さいモード設定
   try { trayMetric = localStorage.getItem(TRAY_METRIC_KEY) || backendSettings?.tray_metric || "five_hour"; } catch {}
@@ -546,10 +620,25 @@ async function initSettings() {
   if (traySelEl) traySelEl.value = trayMetric;
   const miniSelEl = $("#mini-metric-select");
   if (miniSelEl) miniSelEl.value = miniMetric;
-  document.body.dataset.miniMetric = miniMetric;
+  applyMiniMetric();
   // バックエンドに tray metric を反映
   if (!backendSettings || backendSettings.tray_metric !== trayMetric) {
     invoke("set_tray_metric", { metric: trayMetric }).catch(() => {});
+  }
+
+  // トレイのプロバイダ表示 (localStorage) を起動時にバックエンドへ反映する。設定ウィンドウは
+  // 起動時に開かないので、常に読み込まれる popover 側でここで初期同期する。
+  const trayShowClaude = loadStoredBool(TRAY_CLAUDE_KEY);
+  const trayShowCodex = loadStoredBool(TRAY_CODEX_KEY);
+  if (
+    !backendSettings ||
+    backendSettings.tray_show_claude !== trayShowClaude ||
+    backendSettings.tray_show_codex !== trayShowCodex
+  ) {
+    invoke("set_tray_providers", {
+      claude: trayShowClaude,
+      codex: trayShowCodex,
+    }).catch(() => {});
   }
 
   const intervalMin =

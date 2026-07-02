@@ -47,6 +47,17 @@ body {
   display: none;
 }
 
+.settings__note {
+  width: 100%;
+  text-align: left;
+  font-size: calc(11px * var(--text-scale));
+  color: var(--fg-dim);
+  line-height: 1.4;
+}
+.settings__note--warn {
+  color: #d08a00;
+}
+
 .settings__credentials {
   display: grid;
   gap: 8px;
