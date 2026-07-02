@@ -2,7 +2,7 @@
 
 このリポジトリの **今の状況** を一覧する。計画は [plans.md](./plans.md) を参照。
 
-最終更新: 2026-06-23
+最終更新: 2026-07-02
 
 ## いま動いていること
 
@@ -13,7 +13,7 @@
 - macOS メニューバー / Windows システムトレイに **両プロバイダの 5h % を併記** (`C 43% · X 30%`)
   - 片方失敗時は `C 43% · X !`、両方失敗時は `!`
   - tooltip は Claude / Codex を改行で並べた詳細
-- 5 分おき自動ポーリング (1〜60 分で変更可能、設定変更は即時反映)
+- 5 分おき自動ポーリング (1〜60 分で変更可能)。**表示/間隔だけの設定変更 (メトリクス・プロバイダ・間隔) はキャッシュ再描画のみで API を叩かない** (v0.7.2: 無駄フェッチによる 429 誘発を防止)。手動リフレッシュ (⟳/Refresh/再読込) は直前フェッチから 5 秒未満なら連打とみなしスキップ
 - `⟳` / `Refresh now` / 認証情報再読込は、現在の表示 cache を `Loading…` に戻してから資格情報と使用枠を再取得
 - pin (📌) でフォーカスロスト時の自動非表示を抑制、固定中はカード全体をドラッグで移動可
 - リサイズハンドル (右下) は非表示だがドラッグ操作は可能 (cursor だけで示唆)
@@ -21,7 +21,8 @@
 - Windows は `%USERPROFILE%\.claude\.credentials.json` / `%USERPROFILE%\.codex\auth.json`、macOS は `security` CLI 経由で Keychain 読み取り
 - **Claude トークンは CLI → Claude Desktop の順でフォールバック**: CLI 未ログインでも Claude Desktop にログイン済みなら使用枠を表示 (`claude_desktop.rs`)。Desktop の `config.json` の `oauth:tokenCacheV2`/`oauth:tokenCache` を os_crypt 復号 (Win: DPAPI+AES-256-GCM / mac: Keychain `Claude Safe Storage`+PBKDF2+AES-128-CBC)。使用枠は全サーフェス共有プールなので表示値は CLI と同一。
   - **Win の保存先はインストール形態で可変**: 旧 .exe 版は `%APPDATA%\Claude`、**Microsoft Store / MSIX 版**は `%LOCALAPPDATA%\Packages\Claude_<hash>\LocalCache\Roaming\Claude` (リダイレクト)。両方を候補化して `config.json` 実在のものを選ぶ。Store 版 v1.14271 で実機 e2e 確認済み (Windows)。macOS の復号コードは v0.6.0 の macOS CI でコンパイル確認済み・実機ランタイム e2e は未確認。
-- `/api/oauth/usage` には `User-Agent: claude-code/<ver>` を付与 (無いと積極的に 429 になるため)
+- `/api/oauth/usage` には `User-Agent: claude-code/<ver>` を付与 (無い/古いと積極的に 429 になるため)。現在 `claude-code/2.1.197`。`claude --version` に追従して適宜上げる
+- **多重起動防止** (`tauri-plugin-single-instance`, v0.7.2): 常駐ポーラが二重に走って usage API を無駄打ちするのを防ぐ。2 つ目のインスタンスは即終了し、既存の設定ウィンドウを前面化
 - **403 (credential restricted) を明示処理**: usage API が資格情報を弾く場合は生の `HTTP 403` でなく理由を表示し、ポーラは 30 分以上にバックオフ (恒久ブロックを 60s で叩き続けない)
 - 表記は短い英語 (`in 2h30m` / `Mon 09:00` / `now`)
 - **更新通知** (notify only): 起動 30s 後 + 設定間隔 (既定 6h、1〜168h で変更可) ごとに GitHub Releases (`releases/latest`) を確認し、新バージョンがあればポップオーバー上部にバナー表示 → 「開く」で OS ブラウザでリリースページを開く。「×」で閉じた版は再表示しない (新版が出れば再表示)
@@ -45,7 +46,8 @@
 
 ## リリース状況
 
-- 現在のバージョン: **v0.7.1** (2026-06-23, Desktop フォールバック再試行強化 + 認証メタ情報表示 + cache 破棄再読込)
+- 現在のバージョン: **v0.7.2** (2026-07-02, 429 レート制限の緩和: 設定変更での無駄フェッチ停止 + 手動リフレッシュ 5s スペーシング + UA を claude-code/2.1.197 に更新 + single-instance で多重起動防止)
+- v0.7.1 (2026-06-23, Desktop フォールバック再試行強化 + 認証メタ情報表示 + cache 破棄再読込)
 - ビルド対象: macOS aarch64 / x86_64, Windows x64
 - 配布: GitHub Releases。**`v*` tag を push すると `release.yml` が自動発火** → Mac/Win バイナリをビルドして自動 publish (draft なし)。`workflow_dispatch` でも手動起動可。
 

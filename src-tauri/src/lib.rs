@@ -72,8 +72,31 @@ static TRAY_METRIC: AtomicU8 = AtomicU8::new(0); // FiveHour
 /// poll 間隔変更 / プロバイダ変更時にポーラを起こすための notifier。
 static POLL_WAKE: OnceLock<Arc<Notify>> = OnceLock::new();
 
+/// 次回 wake で実 API フェッチを行うかどうか。手動リフレッシュ (refresh/reload) だけが
+/// true にする。表示・間隔だけの変更 (tray_metric / provider / poll_interval) は false の
+/// まま起こし、ポーラはキャッシュ再描画と sleep 再計算だけ行い **API を叩かない**。
+/// これがないと設定をいじるたびに usage エンドポイントへ無駄打ちして 429 を招く。
+static POLL_FORCE_FETCH: AtomicBool = AtomicBool::new(false);
+
 fn poll_wake_internal() -> &'static Arc<Notify> {
     POLL_WAKE.get_or_init(|| Arc::new(Notify::new()))
+}
+
+/// 手動リフレッシュ用: 次回 wake で実フェッチを要求してポーラを起こす。
+pub fn request_poll_fetch() {
+    POLL_FORCE_FETCH.store(true, Ordering::SeqCst);
+    poll_wake_internal().notify_one();
+}
+
+/// 表示・間隔だけの変更用: フェッチせずにポーラを起こし、キャッシュ再描画と
+/// sleep 再計算だけさせる。
+pub fn wake_poller_no_fetch() {
+    poll_wake_internal().notify_one();
+}
+
+/// ポーラが wake 時に呼ぶ: フェッチ要求フラグを取り出してクリアする。
+pub fn take_poll_fetch_request() -> bool {
+    POLL_FORCE_FETCH.swap(false, Ordering::SeqCst)
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -208,7 +231,7 @@ async fn get_usage() -> AllUsage {
 /// 通常経路 (tray 更新 + cache 書き換え + usage-updated emit) で全体に反映する。
 #[tauri::command]
 fn refresh_now() {
-    poll_wake_internal().notify_one();
+    request_poll_fetch();
 }
 
 /// 現在表示中の usage キャッシュを捨ててから即時再取得する。
@@ -399,14 +422,17 @@ fn set_update_check_interval(secs: u64) -> Settings {
 #[tauri::command]
 fn set_tray_metric(metric: TrayMetric) -> Settings {
     TRAY_METRIC.store(metric.as_u8(), Ordering::SeqCst);
-    poll_wake_internal().notify_one();
+    // 表示メトリクスの切替はキャッシュ済みスナップショットに全バケットが入っているので
+    // 再フェッチ不要。ポーラを起こしてトレイを再描画させるだけ。
+    wake_poller_no_fetch();
     get_settings()
 }
 
 #[tauri::command]
 fn set_provider(provider: Provider) -> Settings {
     CURRENT_PROVIDER.store(provider.as_u8(), Ordering::SeqCst);
-    poll_wake_internal().notify_one();
+    // トレイは両プロバイダをキャッシュから描画するので再フェッチ不要。再描画のみ。
+    wake_poller_no_fetch();
     get_settings()
 }
 
@@ -414,7 +440,8 @@ fn set_provider(provider: Provider) -> Settings {
 fn set_poll_interval(secs: u64) -> Settings {
     let clamped = secs.clamp(MIN_POLL_INTERVAL_SECS, MAX_POLL_INTERVAL_SECS);
     POLL_INTERVAL_SECS.store(clamped, Ordering::SeqCst);
-    poll_wake_internal().notify_one();
+    // 間隔変更は次の sleep 計算にだけ効けばよい。フェッチせずに起こして sleep を再計算させる。
+    wake_poller_no_fetch();
     get_settings()
 }
 
@@ -748,6 +775,16 @@ async fn fetch_codex() -> FetchResult {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // 多重起動防止は最初に登録する。2 つ目のインスタンスが起動すると、この
+        // コールバックが既存インスタンス側で走り、2 つ目のプロセスは即終了する。
+        // 常駐トレイアプリを二重起動するとポーラも二重になり usage API を無駄打ちして
+        // 429 を招くため、それを防ぐ。既存の設定ウィンドウがあれば前面に出す。
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(win) = app.get_webview_window("settings") {
+                let _ = win.show();
+                let _ = win.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_positioner::init())
         .invoke_handler(tauri::generate_handler![
             get_usage,
@@ -916,6 +953,16 @@ mod tests {
         );
         assert!(msg.contains("Claude Code:"));
         assert!(msg.contains("Claude Desktop:"));
+    }
+
+    #[test]
+    fn force_fetch_flag_is_one_shot() {
+        // 手動リフレッシュ経路だけが true にし、ポーラが 1 回取り出したらクリアされる。
+        // これが崩れると設定変更 (no-fetch) でも実フェッチが走り 429 を招く。
+        assert!(!take_poll_fetch_request(), "初期状態はフェッチ要求なし");
+        request_poll_fetch();
+        assert!(take_poll_fetch_request(), "request 後は一度だけ true");
+        assert!(!take_poll_fetch_request(), "取り出したらクリアされる");
     }
 
     #[test]

@@ -12,8 +12,9 @@ const BETA_HEADER: &str = "oauth-2025-04-20";
 
 /// `/api/oauth/usage` は `claude-code/<version>` を名乗る User-Agent でないと
 /// 攻撃的にレート制限 (429) される積極バケットに入れられる (read-only 用途)。
-/// Claude Code 本体のバージョン更新に追従して適宜上げる。
-const CLAUDE_CODE_USER_AGENT: &str = "claude-code/2.1.37";
+/// 古いバージョンを名乗ると厳しいバケット行きになりうるため、Claude Code 本体の
+/// バージョン更新に追従して適宜上げる (`claude --version` に合わせる)。
+const CLAUDE_CODE_USER_AGENT: &str = "claude-code/2.1.197";
 
 #[derive(thiserror::Error, Debug)]
 pub enum ApiError {

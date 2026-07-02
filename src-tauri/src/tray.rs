@@ -15,11 +15,17 @@ use tauri_plugin_positioner::{Position, WindowExt};
 
 use crate::{
     api::UsageSnapshot, current_poll_interval_secs, current_tray_metric, fetch_all_usage,
-    poll_wake, resize_popover_width, AllUsage, FetchResult, Provider, TrayMetric,
-    POPOVER_DEFAULT_WIDTH, POPOVER_WIDTH_STEP, MIN_POLL_INTERVAL_SECS,
+    poll_wake, request_poll_fetch, resize_popover_width, take_poll_fetch_request, AllUsage,
+    FetchResult, Provider, TrayMetric, POPOVER_DEFAULT_WIDTH, POPOVER_WIDTH_STEP,
+    MIN_POLL_INTERVAL_SECS,
 };
 
 const INITIAL_DELAY_SECS: u64 = 2;
+
+/// 手動リフレッシュ (refresh / reload) を連打しても、直前のフェッチからこの時間未満なら
+/// 実 API を叩かず直近結果を描画し直すだけにする。usage エンドポイントは Claude Code /
+/// Desktop と同じアカウント単位の狭い枠を共有するので、連続ヒットは 429 を誘発する。
+const MIN_MANUAL_FETCH_SPACING_MS: i64 = 5_000;
 
 /// クリック時に記録するトレイアイコンの screen 矩形 (physical pixel)。
 /// move_window が NSPanel 化後に効きにくいので自前で popover 位置を計算するための材料。
@@ -189,25 +195,43 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let cache_clone = cache.clone();
 
     // ポーラ: 起動 INITIAL_DELAY_SECS 秒後に初回取得 → 以降は設定値 or Retry-After で間隔調整。
-    // 設定変更 (provider / interval) があれば notify_one() で即起き → キャッシュからトレイを即時更新 → 再取得。
+    // wake で起こされたときは 2 種類ある:
+    //   - 表示 / 間隔だけの変更 (tray_metric / provider / poll_interval): フェッチせず
+    //     キャッシュ再描画 + sleep 再計算のみ (take_poll_fetch_request() == false)。
+    //   - 手動リフレッシュ (refresh / reload): 実フェッチ。ただし直前フェッチから
+    //     MIN_MANUAL_FETCH_SPACING_MS 未満なら連打とみなしスキップ (429 誘発防止)。
     let wake = poll_wake();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_secs(INITIAL_DELAY_SECS)).await;
+        let mut last = fetch_all_usage().await;
+        let mut last_fetch_ms = now_ms();
         loop {
-            let all = fetch_all_usage().await;
-            let sleep_secs = decide_sleep_all(&all, current_poll_interval_secs());
-            update_tray(&tray_clone, &all);
-            *cache_clone.lock().unwrap() = all.clone();
-            let _ = handle.emit("usage-updated", &all);
-            tokio::select! {
-                _ = tokio::time::sleep(Duration::from_secs(sleep_secs)) => {}
-                _ = wake.notified() => {
-                    // 設定変更で起こされたケース。新フェッチを待たずに
-                    // キャッシュ + 新しい provider 設定でトレイを即時更新する。
-                    let cached = cache_clone.lock().unwrap().clone();
-                    update_tray(&tray_clone, &cached);
+            // 直近の取得結果でトレイ / キャッシュ / popover を更新。
+            update_tray(&tray_clone, &last);
+            *cache_clone.lock().unwrap() = last.clone();
+            let _ = handle.emit("usage-updated", &last);
+
+            let sleep_secs = decide_sleep_all(&last, current_poll_interval_secs());
+            let woke = tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(sleep_secs)) => false,
+                _ = wake.notified() => true,
+            };
+
+            if woke {
+                // フェッチ要求のない wake (表示 / 間隔変更) はループ先頭に戻って
+                // キャッシュ再描画 + sleep 再計算だけ行う。API は叩かない。
+                if !take_poll_fetch_request() {
+                    continue;
+                }
+                // 手動リフレッシュでも直前フェッチから間隔が短すぎるときはネットワークを
+                // 叩かず直近結果を描画し直す。reload_now が置いた "Loading…" もここで実データに戻る。
+                if now_ms() - last_fetch_ms < MIN_MANUAL_FETCH_SPACING_MS {
+                    continue;
                 }
             }
+
+            last = fetch_all_usage().await;
+            last_fetch_ms = now_ms();
         }
     });
 
@@ -218,7 +242,9 @@ pub fn clear_cached_usage_and_reload<R: Runtime>(handle: &AppHandle<R>) {
     if let Some(cache) = USAGE_CACHE.get() {
         update_cache_and_emit(handle, cache, loading_all_usage());
     }
-    poll_wake().notify_one();
+    // 手動リフレッシュなので実フェッチを要求する (スペーシングが効けばスキップされ、
+    // その場合は直近の実データが再描画されて "Loading…" は消える)。
+    request_poll_fetch();
 }
 
 fn current_popover_width<R: Runtime>(window: &tauri::WebviewWindow<R>) -> Option<f64> {
