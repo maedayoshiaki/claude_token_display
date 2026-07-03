@@ -145,15 +145,15 @@ body[data-density="condensed"] .update-banner {
 }
 body[data-update-available="true"][data-density="condensed"] .update-mark {
   display: inline-flex;
-  min-width: 18px;
-  width: 18px;
-  height: 22px;
+  min-width: 13px;
+  width: 13px;
+  height: 13px;
 }
 body[data-update-available="true"][data-density="minimal"] .update-mark {
   display: inline-flex;
-  min-width: 15px;
-  width: 15px;
-  height: 15px;
+  min-width: 13px;
+  width: 13px;
+  height: 13px;
 }
 
 .card__header {
@@ -691,7 +691,7 @@ body[data-density="condensed"] .header-actions {
   align-items: flex-end;
   width: auto;
   margin-left: 0;
-  gap: 1px;
+  gap: 0;
 }
 
 /* refresh / settings は平常は隠し、card を hover / フォーカスしたときだけ
@@ -708,11 +708,11 @@ body[data-density="condensed"] .card:focus-within #refresh {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  width: 18px;
-  height: 22px;
+  min-width: 13px;
+  width: 13px;
+  height: 13px;
   padding: 0;
-  font-size: 12px;
+  font-size: 10px;
   line-height: 1;
   border-radius: 4px 0 0 4px;
   background: var(--bg);
@@ -723,12 +723,12 @@ body[data-density="condensed"] #pin {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  width: 18px;
-  height: 22px;
+  min-width: 13px;
+  width: 13px;
+  height: 13px;
   padding: 0;
   border-radius: 4px 0 0 4px;
-  font-size: 12px;
+  font-size: 10px;
   line-height: 1;
   background: var(--bar-bg);
 }
@@ -896,9 +896,9 @@ body[data-density="minimal"] .card:focus-within #refresh {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 15px;
-  width: 15px;
-  height: 15px;
+  min-width: 13px;
+  width: 13px;
+  height: 13px;
   padding: 0;
   font-size: 10px;
   line-height: 1;
@@ -911,9 +911,9 @@ body[data-density="minimal"] #pin {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 15px;
-  width: 15px;
-  height: 15px;
+  min-width: 13px;
+  width: 13px;
+  height: 13px;
   padding: 0;
   border-radius: 4px 0 0 4px;
   font-size: 10px;
@@ -1006,10 +1006,11 @@ body[data-density="minimal"][data-mini-metric="both"] .bucket__pct--compact::bef
   margin-right: 1px;
 }
 
-/* weekly を併記する (both / weekly) 極小モードでは、見出し (CLAUDE / CODEX) を横に
-   置くと幅を食って weekly がはみ出すので、指標の上に縦に積んで横幅を節約する。 */
-body[data-density="minimal"][data-mini-metric="both"] .provider,
-body[data-density="minimal"][data-mini-metric="weekly"] .provider {
+/* weekly を併記する (both / weekly) 小モードで、かつ幅が狭い (data-min-narrow) ときは、
+   見出し (CLAUDE / CODEX) を横に置くと weekly がはみ出すので、指標の上に縦に積んで横幅を
+   節約する。幅に余裕があれば見出しは横 (name の右に指標) のままにして縦を詰める。 */
+body[data-min-narrow="true"][data-density="minimal"][data-mini-metric="both"] .provider,
+body[data-min-narrow="true"][data-density="minimal"][data-mini-metric="weekly"] .provider {
   flex-direction: column;
   align-items: flex-start;
   gap: 1px;

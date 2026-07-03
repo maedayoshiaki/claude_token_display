@@ -33,13 +33,16 @@ const COMPACT_WIDTH_MAX = 280;
 const COMPACT_HEIGHT_MAX = 210;
 const CONDENSED_WIDTH_MAX = 155;
 const CONDENSED_HEIGHT_MAX = 84;
-const MINIMAL_WIDTH_MAX = 132;
-const MINIMAL_HEIGHT_MAX = 64;
+const MINIMAL_WIDTH_MAX = 118;
+const MINIMAL_HEIGHT_MAX = 54;
 const CONDENSED_RESETS_HEIGHT_MIN = 88;
 // 極小モードでリセット時刻 (%の下) を出す最小の高さ。プロバイダを 1 つだけ表示している
 // ときは行が半分で済むので、より低い高さから時刻を出せる。
 const MINIMAL_RESETS_HEIGHT_MIN = 58;
 const MINIMAL_RESETS_HEIGHT_MIN_SOLO = 34;
+// 小モードで weekly 併記時、この幅以下なら見出しを縦積みにして横幅を節約する
+// (これ以上あれば見出しは横に置いて縦を詰める)。
+const MIN_NARROW_WIDTH_MAX = 144;
 // 横並び (1 行 2 列) に切り替える条件。ウィンドウが「横長で、縦に 2 つ積むには低い」
 // ときに Claude / Codex を左右に並べる。両方表示中のときだけ有効。
 const TWO_COL_MIN_WIDTH = 170;
@@ -79,6 +82,7 @@ let latestUpdateInfo = null; // 直近の更新情報 (バナー / マーク / d
 let currentDensity = "";
 let currentDensityResets = "";
 let currentLayout = "";
+let currentMinNarrow = "";
 let currentColsWeekly = "";
 
 function levelOf(util) {
@@ -228,11 +232,14 @@ function rerender() {
 }
 
 function densityForSize(width, height) {
+  // 最小(最コンパクト)と中間を「交換」してある: 一番小さいレンジは inline で最コンパクトな
+  // condensed 表示、その一段上は % + 時間が見える minimal 表示。これで小さくなるほど素朴に
+  // なり (フォントも小さく)、中間モードで時間が見える。
   if (width <= MINIMAL_WIDTH_MAX || height <= MINIMAL_HEIGHT_MAX) {
-    return "minimal";
+    return "condensed";
   }
   if (width <= CONDENSED_WIDTH_MAX || height <= CONDENSED_HEIGHT_MAX) {
-    return "condensed";
+    return "minimal";
   }
   if (width <= COMPACT_WIDTH_MAX || height <= COMPACT_HEIGHT_MAX) {
     return "compact";
@@ -258,11 +265,11 @@ function densityResetsForSize(density, height) {
   return false;
 }
 
-// 極小モードで実際に body に反映する mini-metric。プロバイダを 1 つだけ表示しているときは
-// 横に余裕ができるので、既定 (5h のみ) でも weekly を併記する "both" 表示に切り替える。
-// ユーザーが明示的に weekly / both を選んでいる場合はその設定を尊重する。
+// 小モードで実際に body に反映する mini-metric。既定 (5h のみ) でも weekly を併記する
+// "both" 表示にする (片方でも両方でも weekly を出す)。見出しは狭いとき縦積みになるので
+// 両方表示でも収まる。ユーザーが明示的に weekly / both を選んでいる場合はその設定を尊重する。
 function effectiveMiniMetric() {
-  if (isSoloProvider() && miniMetric === "five_hour") return "both";
+  if (miniMetric === "five_hour") return "both";
   return miniMetric;
 }
 
@@ -295,13 +302,28 @@ function updateDensity() {
   // 横並びは横方向レイアウトなので、高さが低くても condensed/minimal に落とさず compact
   // 固定にする。これで condensed の「リセット時刻を隠す」が効かず、時間が確実に出る。
   if (layout === "cols") density = "compact";
+  // 片方だけ表示 (solo) のときは 1 プロバイダで情報も少ないので、小さい〜中サイズ
+  // (condensed / compact 相当) は既定で中間モード (minimal = %+週間+時刻のコンパクト表示)
+  // にする。ただしさらに大きく広げて full 相当になれば full を出す。
+  if (isSoloProvider() && (density === "condensed" || density === "compact")) {
+    density = "minimal";
+  }
   const densityResets = String(densityResetsForSize(density, h));
   // 横並びでは weekly を hero の右に横並びにするので、幅で出し分ける (それ以外は "true")。
   const colsWeekly =
     layout === "cols" ? String(w >= TWO_COL_WEEKLY_MIN_WIDTH) : "true";
+  // 小モード (中間=minimal / 最小=condensed) で幅が狭いか。weekly 併記時の見出し縦積み判定用。
+  const minNarrow = String(
+    (density === "minimal" || density === "condensed") &&
+      w <= MIN_NARROW_WIDTH_MAX
+  );
   if (density !== currentDensity) {
     currentDensity = density;
     document.body.dataset.density = density;
+  }
+  if (minNarrow !== currentMinNarrow) {
+    currentMinNarrow = minNarrow;
+    document.body.dataset.minNarrow = minNarrow;
   }
   if (densityResets !== currentDensityResets) {
     currentDensityResets = densityResets;
@@ -517,7 +539,13 @@ function handleWidthShortcut(event) {
 }
 
 function recoverWidthFromMinimal(event) {
-  if (currentDensity !== "minimal" || isInteractiveTarget(event.target)) return;
+  // 小さい2モード (最小=condensed / 中間=minimal) から幅リセットで抜けられるように。
+  if (
+    (currentDensity !== "minimal" && currentDensity !== "condensed") ||
+    isInteractiveTarget(event.target)
+  ) {
+    return;
+  }
   setPopoverWidth(POPOVER_WIDTH_DEFAULT);
 }
 
