@@ -1058,8 +1058,12 @@ body[data-density="minimal"] .provider__body {
   min-width: 0;
 }
 
+/* エラー時は body を確実に隠す。data-mini-metric="both" の display 上書き
+   (通常時 / 幅 <=44px の block 化) と詳細度が同点になり、後勝ちで hidden な body が
+   再表示されて古い「—%」がエラーの「!」と一緒に出てしまう。!important で固定して、
+   エラー時は「!」だけを出す。 */
 body[data-density="minimal"] .provider__body[hidden] {
-  display: none;
+  display: none !important;
 }
 
 body[data-density="minimal"] .bucket--hero {
@@ -1081,18 +1085,26 @@ body[data-density="minimal"] .bucket__pct {
 
 /* 極小モードのエラーは「!」インジケータだけ。flex-grow させると
    透明なエラー文の分まで横幅を確保してしまい余白が崩れるので、
-   グリフ幅 (1ch) に固定する */
+   グリフ幅 (1ch) に固定する。
+   透明な本文 (data-error の textContent) は width:1ch の中で折り返すと縦に
+   長く伸び、provider を数百 px に膨らませてしまう。#content は justify-content:
+   center + overflow:hidden なので、膨らんだ中身が上へはみ出して「!」が画面外に
+   クリップされ、極小ウィンドウで何も出なくなる。white-space:nowrap で本文を 1 行に
+   抑え、height:1em で高さを「!」1 文字ぶんに固定して膨張を防ぐ。 */
 body[data-density="minimal"] .provider__error {
   position: relative;
   flex: 0 0 auto;
   width: 1ch;
   min-width: 1ch;
+  height: 1em;
   margin: 0;
   padding: 0;
   border: 0;
   background: transparent;
   color: transparent;
+  font-size: 14px;
   line-height: 1;
+  white-space: nowrap;
   overflow: visible;
 }
 
