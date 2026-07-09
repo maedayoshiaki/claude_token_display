@@ -11,44 +11,35 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  release:
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: macos-latest
             args: '--target aarch64-apple-darwin'
-            artifact_name: macos-aarch64
+            rust_targets: aarch64-apple-darwin
           - platform: macos-latest
             args: '--target x86_64-apple-darwin'
-            artifact_name: macos-x86_64
+            rust_targets: x86_64-apple-darwin
           - platform: windows-latest
             args: ''
-            artifact_name: windows-x86_64
+            rust_targets: ''
 
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          persist-credentials: true
-          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Setup Rust (macOS targets)
-        if: matrix.platform == 'macos-latest'
+      - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
-
-      - name: Setup Rust (Windows)
-        if: matrix.platform == 'windows-latest'
-        uses: dtolnay/rust-toolchain@stable
+          targets: ${{ matrix.rust_targets }}
 
       - name: Cache cargo
         uses: swatinem/rust-cache@v2
@@ -59,64 +50,37 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Build (no release upload)
-        run: npx tauri build ${{ matrix.args }}
-
-      - name: Collect bundle artifacts
-        shell: bash
-        run: |
-          set -e
-          mkdir -p artifacts
-          case "${{ matrix.args }}" in
-            "--target aarch64-apple-darwin")
-              cp src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg artifacts/ ;;
-            "--target x86_64-apple-darwin")
-              cp src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg artifacts/ ;;
-            "")
-              cp src-tauri/target/release/bundle/msi/*.msi artifacts/ 2>/dev/null || true
-              cp src-tauri/target/release/bundle/nsis/*.exe artifacts/ 2>/dev/null || true
-              ;;
-          esac
-          ls -la artifacts/
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      # tauri-action がビルド → 署名 (updater 成果物 .sig) → Draft Release へ添付 →
+      # latest.json を生成 / マージ (matrix の各プラットフォームが同じ Draft を更新) する。
+      # 署名鍵は Secrets 経由。鍵が無いと updater 成果物の署名に失敗するので必須。
+      - name: Build, sign and attach to draft release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          name: ${{ matrix.artifact_name }}
-          path: artifacts/
-          if-no-files-found: warn
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: dist
-
-      - name: Flatten directory
-        run: |
-          mkdir -p out
-          find dist -type f \( -name "*.dmg" -o -name "*.exe" -o -name "*.msi" \) -exec cp {} out/ \;
-          ls -la out/
-
-      - name: Create / update release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          draft: false
+          tagName: ${{ github.ref_name }}
+          releaseName: ${{ github.ref_name }}
+          # Draft のまま公開しない。3 プラットフォーム全ての成果物と latest.json が
+          # 揃ったのを確認してから GitHub の Releases 画面で publish する。
+          # (draft は "latest" 扱いにならないので、揃う前に updater が中途半端な
+          #  latest.json を掴むことがない。)
+          releaseDraft: true
           prerelease: false
-          files: out/*
-          body: |
+          args: ${{ matrix.args }}
+          releaseBody: |
             ## ダウンロード
 
             - **macOS (Apple Silicon)**: `*_aarch64.dmg`
             - **macOS (Intel)**: `*_x64.dmg`
             - **Windows**: `*_x64-setup.exe` または `*_x64_en-US.msi`
+
+            ## 自動更新
+
+            v0.9.0 以降は本体内から自動更新できます (更新バナーの「更新」ボタン、
+            または設定 → 「更新してインストール」)。それ以前の版から上げる場合のみ、
+            上記インストーラで一度手動更新してください。
 
             ## 前提
 
@@ -131,5 +95,3 @@ jobs:
             **Windows**: SmartScreen が出たら「詳細情報」→「実行」。
 
             詳細は [README](https://github.com/maedayoshiaki/claude_token_display/blob/main/README.md) を参照。
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

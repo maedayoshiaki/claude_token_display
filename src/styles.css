@@ -104,6 +104,22 @@ body {
 .update-banner__btn:hover {
   background: #0a74e0;
 }
+.update-banner__btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+/* 失敗時フォールバック用の「開く」: 目立たない枠線ボタン。 */
+.update-banner__btn--ghost {
+  background: transparent;
+  color: #0a84ff;
+  border: 1px solid rgba(10, 132, 255, 0.5);
+}
+.update-banner__btn--ghost:hover {
+  background: rgba(10, 132, 255, 0.12);
+}
+.update-banner__btn--ghost[hidden] {
+  display: none;
+}
 .update-banner__close {
   flex: 0 0 auto;
   border: none;

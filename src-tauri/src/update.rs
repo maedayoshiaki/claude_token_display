@@ -181,6 +181,58 @@ pub fn get_update_info() -> Option<UpdateInfo> {
     cache().lock().unwrap().clone()
 }
 
+/// ワンクリック更新。`tauri-plugin-updater` で latest.json を引き、署名検証付きで
+/// 更新成果物 (Win: `-setup.exe` / macOS: `.app.tar.gz`) を DL → インストールし、
+/// 完了後にアプリを再起動する。成功時は `restart()` で戻らない。
+///
+/// この経路は上の GitHub API 検知 (バナー表示用) とは独立で、実際の適用は必ず署名を
+/// 検証する updater 側が担う。latest.json が無い / 署名不一致 / 未署名の旧リリースの
+/// 場合は check() が None かエラーを返すので、frontend は「リリースページを開く」
+/// フォールバックに倒せるよう Err を返す。
+///
+/// 進捗は `update-download-progress` イベント ({ downloaded, total }) で emit する。
+#[tauri::command]
+#[allow(unreachable_code)] // restart() は発散する (-> !) 実装があるため末尾 Ok が届かない場合がある
+pub async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    let updater = app
+        .updater()
+        .map_err(|e| format!("updater を初期化できません: {e}"))?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| format!("更新の確認に失敗しました: {e}"))?;
+    let Some(update) = update else {
+        // latest.json は取れたが適用対象が無い (= 最新、または署名付き成果物が未公開)。
+        return Err("インストール可能な更新が見つかりませんでした".to_string());
+    };
+
+    let progress_app = app.clone();
+    let mut downloaded: u64 = 0;
+    update
+        .download_and_install(
+            move |chunk, total| {
+                downloaded += chunk as u64;
+                let _ = progress_app.emit(
+                    "update-download-progress",
+                    serde_json::json!({
+                        "downloaded": downloaded,
+                        // total は Option<u64>。不明時は null を渡して frontend 側で無視させる。
+                        "total": total,
+                    }),
+                );
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| format!("更新のインストールに失敗しました: {e}"))?;
+
+    // 差し替え済みバイナリで起動し直す (この呼び出しは通常戻らない)。
+    app.restart();
+    Ok(())
+}
+
 /// popover を開いたときに、キャッシュ済みの「更新あり」を再通知する。
 ///
 /// 起動直後の frontend `initUpdateCheck` はバックエンドの初回チェック (`INITIAL_DELAY`

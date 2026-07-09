@@ -361,14 +361,17 @@ function setUpdateStatus(text) {
 $("#update-check-now").addEventListener("click", async () => {
   const btn = $("#update-check-now");
   const link = $("#update-open-link");
+  const installLink = $("#update-install-link");
   btn.disabled = true;
   setUpdateStatus("確認中…");
   if (link) link.hidden = true;
+  if (installLink) installLink.hidden = true;
   try {
     const info = await invoke("check_update_now");
     if (info && info.available) {
       setUpdateStatus("新しい版があります (v" + info.latest + ")");
-      if (link) link.hidden = false;
+      if (installLink) installLink.hidden = false; // ワンクリック更新
+      if (link) link.hidden = false; // 手動 DL フォールバック
     } else if (info) {
       setUpdateStatus("最新版です (v" + info.current + ")");
     } else {
@@ -379,6 +382,29 @@ $("#update-check-now").addEventListener("click", async () => {
     setUpdateStatus("確認に失敗しました");
   } finally {
     btn.disabled = false;
+  }
+});
+
+// ワンクリック更新: 署名検証付きで DL → インストール → 再起動 (成功時は戻らない)。
+async function installUpdate() {
+  const installLink = $("#update-install-link");
+  if (installLink && installLink.dataset.busy === "1") return;
+  if (installLink) installLink.dataset.busy = "1";
+  setUpdateStatus("更新をダウンロード中…");
+  try {
+    await invoke("install_update");
+    // 通常はここに到達しない (再起動するため)。
+  } catch (err) {
+    console.error(err);
+    setUpdateStatus("更新に失敗しました。リリースページから手動で更新してください");
+    if (installLink) installLink.dataset.busy = "";
+  }
+}
+$("#update-install-link").addEventListener("click", installUpdate);
+$("#update-install-link").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    installUpdate();
   }
 });
 

@@ -794,6 +794,41 @@ async function openReleasePage() {
   }
 }
 
+// ワンクリック更新: バックエンドが署名検証付きで DL → インストール → 再起動する。
+// 成功時はアプリが再起動するのでこの関数からは戻らない。失敗時 (latest.json 未公開の
+// 旧リリース・署名不一致・ネットワーク不通など) はバナーにエラーを出し、手動フォール
+// バック (「開く」= リリースページ) ボタンを見せる。
+let updateInstalling = false;
+async function installUpdate() {
+  if (updateInstalling) return;
+  updateInstalling = true;
+  const textEl = $("#update-banner")?.querySelector(".update-banner__text");
+  const installBtn = $("#update-install");
+  const openBtn = $("#update-open");
+  const dismissBtn = $("#update-dismiss");
+  if (installBtn) {
+    installBtn.disabled = true;
+    installBtn.textContent = "更新中…";
+  }
+  if (dismissBtn) dismissBtn.disabled = true;
+  if (openBtn) openBtn.hidden = true;
+  if (textEl) textEl.textContent = "更新を準備中…";
+  try {
+    await invoke("install_update");
+    // 通常はここに到達しない (再起動するため)。
+  } catch (err) {
+    console.error(err);
+    updateInstalling = false;
+    if (textEl) textEl.textContent = "更新に失敗しました。手動で更新してください";
+    if (installBtn) {
+      installBtn.disabled = false;
+      installBtn.textContent = "再試行";
+    }
+    if (dismissBtn) dismissBtn.disabled = false;
+    if (openBtn) openBtn.hidden = false; // 手動 DL フォールバックを見せる
+  }
+}
+
 function clampUpdateIntervalHours(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return DEFAULT_UPDATE_INTERVAL_HOURS;
@@ -824,12 +859,29 @@ async function initUpdateCheck() {
   }
 }
 
+$("#update-install").addEventListener("click", installUpdate);
 $("#update-open").addEventListener("click", openReleasePage);
+// 極小モードの更新マークは誤クリックでの再起動を避け、従来どおりリリースページを開く。
 $("#update-mark").addEventListener("click", openReleasePage);
 $("#update-dismiss").addEventListener("click", dismissUpdateBanner);
 
 listen("update-available", (event) => {
   showUpdateBanner(event.payload);
+});
+
+// install_update 実行中の DL 進捗をバナーに反映する。
+listen("update-download-progress", (event) => {
+  const textEl = $("#update-banner")?.querySelector(".update-banner__text");
+  if (!textEl) return;
+  const p = event.payload || {};
+  const done = Number(p.downloaded);
+  const total = Number(p.total);
+  if (Number.isFinite(total) && total > 0 && Number.isFinite(done)) {
+    const pct = Math.min(100, Math.floor((done / total) * 100));
+    textEl.textContent = `ダウンロード中… ${pct}%`;
+  } else if (Number.isFinite(done) && done > 0) {
+    textEl.textContent = `ダウンロード中… ${Math.floor(done / 1024)} KB`;
+  }
 });
 
 listen("usage-updated", (event) => {

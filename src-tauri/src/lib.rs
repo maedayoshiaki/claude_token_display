@@ -894,6 +894,9 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_positioner::init())
+        // アプリ自身の自動更新。app.updater() を Rust から使うために登録する
+        // (実際の check/DL/install は update::install_update コマンドで駆動)。
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             get_usage,
             refresh_now,
@@ -916,6 +919,7 @@ pub fn run() {
             update::get_update_info,
             update::open_release_page,
             update::check_update_now,
+            update::install_update,
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]

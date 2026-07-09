@@ -33,7 +33,29 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-→ GitHub Actions が走り、macOS (aarch64 + x86_64) と Windows のバイナリを Draft Release に添付する。GitHub の Releases 画面でドラフトを編集 → publish で公開。
+→ GitHub Actions (`tauri-action`) が走り、macOS (aarch64 + x86_64) と Windows のバイナリ +
+**updater 成果物 (`.sig` 署名 / macOS `.app.tar.gz`) + `latest.json`** を **Draft Release** に添付する。
+GitHub の Releases 画面でドラフトを開き、**3 プラットフォーム分の成果物と `latest.json` が
+揃っているのを確認**してから publish で公開する (draft は "latest" 扱いにならないので、揃う前に
+自動更新クライアントが中途半端な `latest.json` を掴むことはない)。
+
+### 自動更新 (self-update) の前提
+
+- **署名鍵**: updater は成果物の minisign 署名を必須とする。公開鍵は `tauri.conf.json`
+  の `plugins.updater.pubkey` に埋め込み済み。秘密鍵は **リポジトリには置かず**、GitHub の
+  **Actions Secrets** に登録する:
+  - `TAURI_SIGNING_PRIVATE_KEY` — 秘密鍵ファイルの中身
+  - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — 鍵のパスワード (無しなら空文字)
+  鍵は `npx tauri signer generate -w <path> --ci -p "<password>"` で再生成できる。**鍵を
+  失うと既存インストールへ更新を配れなくなる** (署名検証に通らなくなる) ので厳重保管。
+- **バージョン**: 自動更新は「updater 入りでビルドされた版 (= v0.9.0 以降)」からのみ効く。
+  v0.8.2 以前の既存インストールは従来どおり更新バナー (GitHub API 検知) で通知され、一度だけ
+  インストーラで手動更新すれば以後は自動更新に乗る。リリース時は 3 ファイルのバージョンを合わせる
+  こと: `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` (+ `Cargo.lock`)。
+- **経路**: 更新検知 (バナー表示) は従来の GitHub API チェック (`update.rs::spawn_checker`) が担当。
+  実際の適用は署名検証付きの `tauri-plugin-updater` = `update.rs::install_update` コマンドが
+  DL → インストール → `app.restart()` まで行う (Win: `installMode: passive`)。フロントの
+  「更新」ボタン / 設定の「更新してインストール」から起動。失敗時は「リリースページを開く」に倒す。
 
 icon を変えるとき:
 ```bash
@@ -130,7 +152,12 @@ $env:TOKEN_DISPLAY_FAKE_VERSION="0.0.1"; npm run tauri dev   # Windows PowerShel
 # macOS/Linux: TOKEN_DISPLAY_FAKE_VERSION=0.0.1 npm run tauri dev
 
 # 本番ビルド
+# 注意: createUpdaterArtifacts: true にしているため、bundle 生成時に updater 成果物の
+# 署名が走る。署名鍵の env が無いと `tauri build` は失敗する (dev は bundle しないので不要)。
+$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content <秘密鍵ファイル> -Raw   # Windows PowerShell
+$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""                        # 鍵にパスワードがあれば設定
 npm run tauri build
+# macOS/Linux: export TAURI_SIGNING_PRIVATE_KEY="$(cat <秘密鍵ファイル>)"; export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""; npm run tauri build
 
 # Rust 単体テスト
 cd src-tauri && cargo test
