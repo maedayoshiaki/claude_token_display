@@ -68,6 +68,10 @@ jobs:
           #  latest.json を掴むことがない。)
           releaseDraft: true
           prerelease: false
+          # latest.json の windows-x86_64 を MSI ではなく NSIS (-setup.exe) に向ける。
+          # 通常インストールは NSIS (per-user)。MSI (per-machine/UAC) で更新すると
+          # 別場所に二重インストールされるため、updater は NSIS に統一する。
+          updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
           releaseBody: |
             ## ダウンロード
