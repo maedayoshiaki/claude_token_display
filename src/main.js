@@ -302,10 +302,11 @@ function updateDensity() {
   // 横並びは横方向レイアウトなので、高さが低くても condensed/minimal に落とさず compact
   // 固定にする。これで condensed の「リセット時刻を隠す」が効かず、時間が確実に出る。
   if (layout === "cols") density = "compact";
-  // 片方だけ表示 (solo) のときは 1 プロバイダで情報も少ないので、小さい〜中サイズ
-  // (condensed / compact 相当) は既定で中間モード (minimal = %+週間+時刻のコンパクト表示)
-  // にする。ただしさらに大きく広げて full 相当になれば full を出す。
-  if (isSoloProvider() && (density === "condensed" || density === "compact")) {
+  // 片方だけ表示 (solo) のときは 1 プロバイダで情報も少ないので、最小レンジ (condensed)
+  // だけ中間モード (minimal = %+週間+時刻のコンパクト表示) に上げる。compact はそのまま
+  // compact を出す。こうしないと幅を少し狭めた (compact 入りした) だけで一気に最小表示へ
+  // 落ちてしまう。full 相当まで広げれば full を出す。
+  if (isSoloProvider() && density === "condensed") {
     density = "minimal";
   }
   const densityResets = String(densityResetsForSize(density, h));
@@ -747,7 +748,7 @@ function syncUpdateIndicators() {
     const versionEl = $("#update-version");
     if (versionEl) versionEl.textContent = label;
     const mark = $("#update-mark");
-    if (mark) mark.title = `新しいバージョン ${label} が利用可能です（クリックで開く）`;
+    if (mark) mark.title = `新しいバージョン ${label} が利用可能です（クリックで更新）`;
   }
 }
 
@@ -799,7 +800,7 @@ async function openReleasePage() {
 // 旧リリース・署名不一致・ネットワーク不通など) はバナーにエラーを出し、手動フォール
 // バック (「開く」= リリースページ) ボタンを見せる。
 let updateInstalling = false;
-async function installUpdate() {
+async function installUpdate(opts = {}) {
   if (updateInstalling) return;
   updateInstalling = true;
   const textEl = $("#update-banner")?.querySelector(".update-banner__text");
@@ -826,6 +827,9 @@ async function installUpdate() {
     }
     if (dismissBtn) dismissBtn.disabled = false;
     if (openBtn) openBtn.hidden = false; // 手動 DL フォールバックを見せる
+    // 最小/極小モードから呼ばれた場合はバナー自体が隠れていてエラーが見えないので、
+    // リリースページを開いて手動更新へ誘導する。
+    if (opts.fallbackToPage) openReleasePage();
   }
 }
 
@@ -859,10 +863,11 @@ async function initUpdateCheck() {
   }
 }
 
-$("#update-install").addEventListener("click", installUpdate);
+$("#update-install").addEventListener("click", () => installUpdate());
 $("#update-open").addEventListener("click", openReleasePage);
-// 極小モードの更新マークは誤クリックでの再起動を避け、従来どおりリリースページを開く。
-$("#update-mark").addEventListener("click", openReleasePage);
+// 最小/極小モードの更新マークもワンクリック更新にする (バナーと挙動を統一)。
+// バナーが隠れている小モードなので、失敗時はリリースページを開くフォールバックに倒す。
+$("#update-mark").addEventListener("click", () => installUpdate({ fallbackToPage: true }));
 $("#update-dismiss").addEventListener("click", dismissUpdateBanner);
 
 listen("update-available", (event) => {
