@@ -49,6 +49,11 @@ static POLL_INTERVAL_SECS: AtomicU64 = AtomicU64::new(DEFAULT_POLL_INTERVAL_SECS
 // Claude Desktop credential path. Set this back to false after Desktop testing.
 const DISABLE_CLAUDE_CODE_TOKEN_READ_FOR_DESKTOP_TEST: bool = false;
 
+/// CLI トークンを「期限切れ」とみなすときの前倒し余裕 (ms)。フェッチ往復の最中に
+/// 失効する寸前のトークンを掴んで 401 を食らうのを避けるため、この分だけ早めに
+/// 期限切れ扱いにする。
+const CLI_TOKEN_EXPIRY_MARGIN_MS: i64 = 60_000;
+
 /// 更新チェック間隔 (秒)。usage ポーリングとは別系統。短すぎると GitHub の
 /// 未認証レート制限 (IP あたり 60 req/h) に触れるので最小 1 時間。
 pub const MIN_UPDATE_CHECK_INTERVAL_SECS: u64 = 3_600;
@@ -828,6 +833,21 @@ async fn fetch_claude() -> FetchResult {
     };
 
     let cli_credential = cli_credential.expect("Some after successful keychain read");
+
+    // Claude Code CLI を起動していない間 (= Claude Desktop のみ起動) は
+    // `.credentials.json` のトークンが更新されず、期限切れのまま残る。その死んだトークンで
+    // usage API を叩くと 401 (無効トークンの連続アクセスで 429 にもなりうる) が返るだけで、
+    // 429 は Desktop フォールバックの対象外なので「使用量が取れない」状態に陥る。
+    // ローカルで期限切れと分かるなら API を無駄打ちせず、先に Desktop トークンを使う。
+    if cli_credential.is_expired_at(now_ms(), CLI_TOKEN_EXPIRY_MARGIN_MS) {
+        if let Ok(desktop_credential) = claude_desktop::read_credentials() {
+            if desktop_credential.access_token != cli_credential.access_token {
+                return fetch_claude_with_token(&desktop_credential.access_token).await;
+            }
+        }
+        // Desktop が使えない / CLI と同一トークンなら、期限切れでも CLI を試す (最後の手段)。
+    }
+
     match api::fetch_usage(&cli_credential.access_token).await {
         Ok(snapshot) => FetchResult::Ok {
             provider: Provider::Claude,

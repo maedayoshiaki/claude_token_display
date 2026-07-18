@@ -115,6 +115,8 @@ git commit -m "Update app icon"
 
 Claude Code CLI が未ログインでも、**Claude Desktop にログイン済みなら** そのトークンを使う。`fetch_claude` は CLI keystore → Desktop の順でトークンを探す。使用枠は全サーフェス共有プールなので、取れる accessToken は同種・表示値も同じ。
 
+- **期限切れ CLI トークンの先回りフォールバック** (`fetch_claude`): Claude Code CLI を起動していない間 (= Claude Desktop のみ起動) は `.credentials.json` のトークンが更新されず期限切れのまま残る。その死んだトークンで usage API を叩くと 401、あるいは無効トークンの連続アクセスで **429** になり、429 は Desktop フォールバック (`should_try_desktop_after_cli_api_error` は 401/403 のみ) の対象外なので「使用量が取れない」状態に陥っていた。対策として `keychain::ClaudeCodeCredential` に `expiresAt` (`claudeAiOauth.expiresAt`) を持たせ、`is_expired_at` で**ローカルに期限切れと分かる CLI トークンは API を叩く前に Desktop トークンへ先回りフォールバック**する (`CLI_TOKEN_EXPIRY_MARGIN_MS` 分の前倒し余裕つき)。Desktop が無い / CLI と同一トークンなら期限切れでも CLI を最後の手段として試す。
+
 - 設定ファイル (Windows はインストール形態で場所が変わる。`desktop_data_dir` が `config.json` 実在の最初の候補を選ぶ):
   - Windows 旧 .exe (NSIS/Squirrel) 版: `%APPDATA%\Claude\config.json`
   - **Windows Microsoft Store / MSIX 版**: `%APPDATA%` がパッケージ専用フォルダにリダイレクトされ、実体は `%LOCALAPPDATA%\Packages\Claude_<publisherハッシュ>\LocalCache\Roaming\Claude\config.json` (例: `Claude_pzs8sxrjxfjjc`)。`%LOCALAPPDATA%\Packages` 配下を `Claude` 始まりで列挙して候補化する。**実機 (Store 版 v1.14271) で end-to-end 確認済み: 取得トークンで `/api/oauth/usage` が 200 を返し使用率を取得**。
