@@ -5,6 +5,7 @@
 //! - Usage API: `GET https://chatgpt.com/backend-api/wham/usage`
 //!     Header: `Authorization: Bearer <access_token>` (+ optional `ChatGPT-Account-Id`)
 //!     Response: `rate_limit.{primary_window,secondary_window}.{used_percent,reset_at,limit_window_seconds}`
+//!     Codex は現在、フィールド名ではなく7日窓の使用量を表示する。
 //!     `reset_at` は epoch seconds (整数)。Claude の ISO8601 と違うので変換が要る。
 
 use chrono::{DateTime, TimeZone, Utc};
@@ -13,6 +14,7 @@ use serde::Deserialize;
 use crate::api::{ApiError, Bucket, UsageSnapshot};
 
 const USAGE_URL: &str = "https://chatgpt.com/backend-api/wham/usage";
+const WEEK_SECONDS: i64 = 7 * 24 * 60 * 60;
 
 #[derive(thiserror::Error, Debug)]
 pub enum CodexAuthError {
@@ -99,6 +101,7 @@ struct RawWindow {
 
 #[derive(Deserialize, Debug, Default)]
 struct RawRateLimit {
+    #[allow(dead_code)]
     primary_window: Option<RawWindow>,
     secondary_window: Option<RawWindow>,
 }
@@ -109,6 +112,27 @@ struct RawUsage {
     rate_limit: Option<RawRateLimit>,
 }
 
+impl RawRateLimit {
+    fn into_snapshot(self) -> UsageSnapshot {
+        // Codex の現行使用量表示は週次バケットのみ。API のバージョンによって
+        // 7日窓が primary_window / secondary_window のどちらに入るかが変わるため、
+        // フィールド名ではなく limit_window_seconds で選ぶ。
+        let weekly = self
+            .primary_window
+            .and_then(RawWindow::into_weekly_bucket)
+            .or_else(|| {
+                self.secondary_window
+                    .and_then(RawWindow::into_weekly_bucket)
+            });
+        UsageSnapshot {
+            five_hour: None,
+            seven_day: weekly,
+            seven_day_sonnet: None,
+            fetched_at: Utc::now(),
+        }
+    }
+}
+
 impl RawWindow {
     fn into_bucket(self) -> Option<Bucket> {
         let used = self.used_percent?;
@@ -117,6 +141,14 @@ impl RawWindow {
             utilization: used / 100.0,
             resets_at,
         })
+    }
+
+    fn into_weekly_bucket(self) -> Option<Bucket> {
+        if self.limit_window_seconds == Some(WEEK_SECONDS) {
+            self.into_bucket()
+        } else {
+            None
+        }
     }
 }
 
@@ -165,13 +197,7 @@ pub async fn fetch_usage(creds: &CodexCredentials) -> Result<UsageSnapshot, ApiE
         .await
         .map_err(|e| ApiError::Decode(e.to_string()))?;
 
-    let rate_limit = raw.rate_limit.unwrap_or_default();
-    Ok(UsageSnapshot {
-        five_hour: rate_limit.primary_window.and_then(RawWindow::into_bucket),
-        seven_day: rate_limit.secondary_window.and_then(RawWindow::into_bucket),
-        seven_day_sonnet: None,
-        fetched_at: Utc::now(),
-    })
+    Ok(raw.rate_limit.unwrap_or_default().into_snapshot())
 }
 
 #[cfg(test)]
@@ -206,5 +232,42 @@ mod tests {
         }
         .into_bucket();
         assert!(bucket.is_none());
+    }
+
+    #[test]
+    fn ignores_legacy_primary_window() {
+        let rate_limit = RawRateLimit {
+            primary_window: Some(RawWindow {
+                used_percent: Some(91.0),
+                reset_at: Some(1_700_000_000),
+                limit_window_seconds: Some(300),
+            }),
+            secondary_window: Some(RawWindow {
+                used_percent: Some(23.0),
+                reset_at: Some(1_700_600_000),
+                limit_window_seconds: Some(604_800),
+            }),
+        };
+
+        let snapshot = rate_limit.into_snapshot();
+
+        assert!(snapshot.five_hour.is_none());
+        assert_eq!(snapshot.seven_day.unwrap().utilization, 0.23);
+    }
+
+    #[test]
+    fn accepts_current_weekly_primary_window() {
+        let snapshot = RawRateLimit {
+            primary_window: Some(RawWindow {
+                used_percent: Some(2.0),
+                reset_at: Some(1_700_000_000),
+                limit_window_seconds: Some(WEEK_SECONDS),
+            }),
+            secondary_window: None,
+        }
+        .into_snapshot();
+
+        assert!(snapshot.five_hour.is_none());
+        assert_eq!(snapshot.seven_day.unwrap().utilization, 0.02);
     }
 }

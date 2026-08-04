@@ -159,15 +159,6 @@ function renderClaudeWeekly(section, weekly, sonnet) {
   resetsEl.textContent = formatResetShort(resetIso);
 }
 
-function renderCodexWeekly(section, weekly) {
-  if (!section) return;
-  section.hidden = false;
-  const weeklyPct = section.querySelector("[data-pct-weekly]");
-  const resetsEl = section.querySelector("[data-resets]");
-  weeklyPct.textContent = weekly ? `${pctOf(weekly)}%` : "—%";
-  resetsEl.textContent = formatResetShort(weekly ? weekly.resets_at : null);
-}
-
 function renderProvider(providerKey, result) {
   const section = document.querySelector(
     `.provider[data-provider="${providerKey}"]`
@@ -200,16 +191,17 @@ function renderProvider(providerKey, result) {
   errorEl.removeAttribute("title");
   body.hidden = false;
   const heroSection = section.querySelector('[data-bucket="five_hour"]');
-  renderHeroBucket(heroSection, snapshot.five_hour);
+  // Codex は現行仕様で週次使用量のみ。共通の hero DOM を使うが、値は weekly を渡す。
+  renderHeroBucket(
+    heroSection,
+    providerKey === "codex" ? snapshot.seven_day : snapshot.five_hour
+  );
 
   if (providerKey === "claude") {
     const weeklySection = section.querySelector(
       '[data-bucket="weekly-combined"]'
     );
     renderClaudeWeekly(weeklySection, snapshot.seven_day, snapshot.seven_day_sonnet);
-  } else {
-    const weeklySection = section.querySelector('[data-bucket="weekly"]');
-    renderCodexWeekly(weeklySection, snapshot.seven_day);
   }
 }
 

@@ -2,15 +2,15 @@
 
 このリポジトリの **今の状況** を一覧する。計画は [plans.md](./plans.md) を参照。
 
-最終更新: 2026-07-02
+最終更新: 2026-08-04
 
 ## いま動いていること
 
 - **Claude / Codex 両プロバイダの使用枠を 1 つのポップオーバーで同時表示**
   - Claude: 5h セッション (バー) + 週間 + Sonnet 週間 (1 行に統合表示、Sonnet は ON/OFF 切替可)
-  - Codex: 5h セッション (バー) + 週間 (`wham/usage` の `primary_window` / `secondary_window` を正規化)
-- 5h バーは ON/OFF 切替可 (OFF で「数字 + reset 時刻」のみのテキスト表示)
-- macOS メニューバー / Windows システムトレイに **両プロバイダの 5h % を併記** (`C 43% · X 30%`)
+  - Codex: 週間使用量のみ (バー) (`wham/usage` の `limit_window_seconds=604800` の7日窓を正規化。APIのフィールド位置は問わない)
+- Claude の5hバー / Codex の週間バーは ON/OFF 切替可 (OFF で「数字 + reset 時刻」のみのテキスト表示)
+- macOS メニューバー / Windows システムトレイに **Claude の5h / Codex の週間 % を併記** (`C 43% · X 12%`)
   - 片方失敗時は `C 43% · X !`、両方失敗時は `!`
   - tooltip は Claude / Codex を改行で並べた詳細
 - 5 分おき自動ポーリング (1〜60 分で変更可能)。**表示/間隔だけの設定変更 (メトリクス・プロバイダ・間隔) はキャッシュ再描画のみで API を叩かない** (v0.7.2: 無駄フェッチによる 429 誘発を防止)。手動リフレッシュ (⟳/Refresh/再読込) は直前フェッチから 5 秒未満なら連打とみなしスキップ
@@ -46,7 +46,7 @@
 
 ## リリース状況
 
-- 現在のバージョン: **v0.7.2** (2026-07-02, 429 レート制限の緩和: 設定変更での無駄フェッチ停止 + 手動リフレッシュ 5s スペーシング + UA を claude-code/2.1.197 に更新 + single-instance で多重起動防止)
+- 現在のバージョン: **v0.9.4** (Codexの週次使用量表示を最新API仕様に対応。7日窓を `limit_window_seconds` で判定し、primary/secondary の位置変更にも対応)
 - v0.7.1 (2026-06-23, Desktop フォールバック再試行強化 + 認証メタ情報表示 + cache 破棄再読込)
 - ビルド対象: macOS aarch64 / x86_64, Windows x64
 - 配布: GitHub Releases。**`v*` tag を push すると `release.yml` が自動発火** → Mac/Win バイナリをビルドして自動 publish (draft なし)。`workflow_dispatch` でも手動起動可。

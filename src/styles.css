@@ -474,6 +474,24 @@ body[data-show-codex="false"] .provider[data-provider="codex"] { display: none !
 
 /* 週間使用率非表示 */
 body[data-show-weekly="false"] .bucket--compact { display: none !important; }
+/* Codex は weekly が唯一の使用量なので、weekly OFF では hero も隠す。 */
+body[data-show-weekly="false"] .provider[data-provider="codex"] .bucket--hero {
+  display: none !important;
+}
+
+/* Codex の hero は weekly。minimal モードの一般的な「weekly は compact」ルールを
+   上書きして、5h 用の primary_window が無い状態でも値を表示する。 */
+body[data-density="minimal"][data-mini-metric="weekly"] .provider[data-provider="codex"] .bucket--hero,
+body[data-density="minimal"][data-mini-metric="both"] .provider[data-provider="codex"] .bucket--hero {
+  display: flex !important;
+}
+body[data-density="minimal"][data-mini-metric="both"] .provider[data-provider="codex"] .bucket__pct::before {
+  content: "w:";
+}
+/* 上の minimal 用表示指定よりも weekly OFF を優先する。 */
+body[data-show-weekly="false"] .provider[data-provider="codex"] .bucket--hero {
+  display: none !important;
+}
 
 /* リセット時刻非表示 */
 body[data-show-resets="false"] .bucket__resets,

@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **token_display** — Claude Max プランの **使用枠**（5時間セッション %、週間 %、Sonnet 週間 %、各リセット時刻）を、macOS のメニューバー / Windows のシステムトレイに常時表示する常駐型アプリ。
 
+Codex (ChatGPT) は別プロバイダとして、現行仕様の週次使用量 (`wham/usage` の7日窓) のみを表示する。APIのバージョンで `primary_window` / `secondary_window` のどちらに入るかが変わるため、`limit_window_seconds` が604800秒の窓を採用し、5時間窓は表示・トレイ計算に使用しない。
+
 - 表示内容: 設定ページ（claude.ai/settings/usage）に出るプラン使用率と、各バケットのリセット時刻
 - データ源: **Anthropic OAuth usage API** (`GET https://api.anthropic.com/api/oauth/usage`)
 - 認証: Claude Code が OS の keystore に保存している OAuth access_token を流用
