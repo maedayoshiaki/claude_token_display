@@ -19,6 +19,7 @@
 - リサイズハンドル (右下) は非表示だがドラッグ操作は可能 (cursor だけで示唆)
 - 文字サイズ調整 (0.6〜2.0×, A-/A+ 早押しボタン + 数値入力)
 - 初回起動時に macOS / Windows のログイン時自動起動を ON/OFF 選択 (既定 OFF)。設定画面から後で変更可能 (Tauri autostart プラグイン)
+- 横長の小さいウィンドウでは操作アイコンを右端に縦積みし、Codex 表示との重なりを防止
 - Windows は `%USERPROFILE%\.claude\.credentials.json` / `%USERPROFILE%\.codex\auth.json`、macOS は `security` CLI 経由で Keychain 読み取り
 - **Claude トークンは CLI → Claude Desktop の順でフォールバック**: CLI 未ログインでも Claude Desktop にログイン済みなら使用枠を表示 (`claude_desktop.rs`)。Desktop の `config.json` の `oauth:tokenCacheV2`/`oauth:tokenCache` を os_crypt 復号 (Win: DPAPI+AES-256-GCM / mac: Keychain `Claude Safe Storage`+PBKDF2+AES-128-CBC)。使用枠は全サーフェス共有プールなので表示値は CLI と同一。
   - **Win の保存先はインストール形態で可変**: 旧 .exe 版は `%APPDATA%\Claude`、**Microsoft Store / MSIX 版**は `%LOCALAPPDATA%\Packages\Claude_<hash>\LocalCache\Roaming\Claude` (リダイレクト)。両方を候補化して `config.json` 実在のものを選ぶ。Store 版 v1.14271 で実機 e2e 確認済み (Windows)。macOS の復号コードは v0.6.0 の macOS CI でコンパイル確認済み・実機ランタイム e2e は未確認。
@@ -47,7 +48,7 @@
 
 ## リリース状況
 
-- 現在のバージョン: **v0.9.6** (初回起動時の自動起動 ON/OFF 選択、既定 OFF)
+- 現在のバージョン: **v0.9.7** (横長モードの操作アイコンを縦積みにして Codex 表示を保護)
 - v0.7.1 (2026-06-23, Desktop フォールバック再試行強化 + 認証メタ情報表示 + cache 破棄再読込)
 - ビルド対象: macOS aarch64 / x86_64, Windows x64
 - 配布: GitHub Releases。**`v*` tag を push すると `release.yml` が自動発火** → Mac/Win バイナリをビルドして自動 publish (draft なし)。`workflow_dispatch` でも手動起動可。

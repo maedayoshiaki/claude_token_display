@@ -1515,15 +1515,15 @@ body[data-layout="cols"][data-cols-weekly="false"] .bucket--compact {
   display: none !important;
 }
 
-/* アイコン: 右上に横並びのオーバーレイ。普段は隠して文字と重ならないようにし、
-   card を hover / フォーカスしたときだけ出す。 */
+/* アイコン: 最小モードと同じく右端中央に小さく縦積みする。横長レイアウトでは
+   Codex の表示領域と重なりやすいため、横一列にはしない。 */
 body[data-layout="cols"] .card__header {
   position: absolute;
-  top: 2px;
-  right: 4px;
+  top: 50%;
+  right: 1px;
   left: auto;
   bottom: auto;
-  transform: none;
+  transform: translateY(-50%);
   margin: 0;
   z-index: 3;
   width: auto;
@@ -1545,10 +1545,19 @@ body[data-layout="cols"] .card:focus-within .header-actions {
   padding: 1px 2px;
 }
 body[data-layout="cols"] .header-actions {
-  flex-direction: row;
-  align-items: center;
-  gap: 4px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0;
+}
+body[data-layout="cols"] .header-actions .icon-btn,
+body[data-layout="cols"] .header-actions .update-mark {
+  min-width: 13px;
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  font-size: 10px;
+  line-height: 1;
 }
 body[data-layout="cols"] .card {
-  padding: 6px 10px;
+  padding: 6px 28px 6px 10px;
 }
