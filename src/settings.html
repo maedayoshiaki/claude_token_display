@@ -187,6 +187,20 @@
         </label>
       </section>
     </main>
+
+    <section id="autostart-prompt" class="settings-prompt" hidden>
+      <div class="settings-prompt__dialog" role="dialog" aria-modal="true" aria-labelledby="autostart-prompt-title">
+        <h1 id="autostart-prompt-title" class="settings-prompt__title">自動起動の設定</h1>
+        <p class="settings-prompt__text">
+          macOS / Windows へのログイン時に token_display を自動起動しますか？
+        </p>
+        <div class="settings-prompt__actions">
+          <button id="autostart-prompt-enable" class="settings-prompt__button settings-prompt__button--primary" type="button">ON にする</button>
+          <button id="autostart-prompt-disable" class="settings-prompt__button" type="button">OFF のまま</button>
+        </div>
+        <p id="autostart-prompt-status" class="settings-prompt__status" hidden></p>
+      </div>
+    </section>
     <script src="settings.js" defer></script>
   </body>
 </html>

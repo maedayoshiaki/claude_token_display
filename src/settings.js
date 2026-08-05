@@ -2,6 +2,7 @@
 // "settings-changed" イベントで popover に反映する (popover はイベント payload を見て即適用)。
 const { invoke } = window.__TAURI__.core;
 const { emit } = window.__TAURI__.event;
+const currentWindow = window.__TAURI__.window.getCurrentWindow();
 const autostartApi = window.__TAURI__.autostart || null;
 
 const $ = (sel) => document.querySelector(sel);
@@ -22,6 +23,7 @@ const TRAY_CODEX_KEY = "token_display_tray_codex";
 const UPDATE_INTERVAL_HOURS_KEY = "token_display_update_interval_hours";
 const THEME_KEY = "token_display_theme";
 const UPDATE_NOTIFY_KEY = "token_display_update_notify";
+const AUTOSTART_PROMPT_KEY = "token_display_autostart_prompted";
 
 const TEXT_SCALE_MIN = 0.6;
 const TEXT_SCALE_MAX = 2.0;
@@ -224,6 +226,79 @@ async function loadAutostart() {
   }
 }
 
+async function setAutostart(requested) {
+  if (!autostartApi?.enable || !autostartApi?.disable || !autostartApi?.isEnabled) {
+    throw new Error("自動起動 API を利用できません");
+  }
+  if (requested) {
+    await autostartApi.enable();
+  } else {
+    await autostartApi.disable();
+  }
+  autostartEnabled = await autostartApi.isEnabled();
+  return autostartEnabled;
+}
+
+function setAutostartPrompted() {
+  setStr(AUTOSTART_PROMPT_KEY, "1");
+}
+
+async function showInitialAutostartPrompt() {
+  if (!autostartApi?.enable || !autostartApi?.disable || !autostartApi?.isEnabled) return;
+  try {
+    if (localStorage.getItem(AUTOSTART_PROMPT_KEY) === "1") return;
+  } catch {
+    // ignore
+  }
+
+  // 既存ユーザーがすでに自分で ON にしていた場合は、その選択を尊重する。
+  if (autostartEnabled) {
+    setAutostartPrompted();
+    return;
+  }
+
+  const prompt = $("#autostart-prompt");
+  const enable = $("#autostart-prompt-enable");
+  const disable = $("#autostart-prompt-disable");
+  const status = $("#autostart-prompt-status");
+  if (!prompt || !enable || !disable) return;
+
+  try {
+    await currentWindow.show();
+    await currentWindow.setFocus();
+  } catch (err) {
+    console.error(err);
+  }
+  prompt.hidden = false;
+
+  const choose = async (requested) => {
+    enable.disabled = true;
+    disable.disabled = true;
+    if (status) {
+      status.hidden = true;
+      status.textContent = "";
+    }
+    try {
+      await setAutostart(requested);
+      setAutostartPrompted();
+      prompt.hidden = true;
+      renderControls();
+    } catch (err) {
+      console.error(err);
+      if (status) {
+        status.hidden = false;
+        status.textContent = `設定に失敗しました: ${String(err)}`;
+      }
+    } finally {
+      enable.disabled = false;
+      disable.disabled = false;
+    }
+  };
+
+  enable.addEventListener("click", () => choose(true));
+  disable.addEventListener("click", () => choose(false));
+}
+
 function refreshScaleButtons() {
   $("#font-smaller").disabled = textScale <= TEXT_SCALE_MIN + 1e-6;
   $("#font-larger").disabled = textScale >= TEXT_SCALE_MAX - 1e-6;
@@ -329,12 +404,7 @@ $("#autostart-toggle").addEventListener("change", async (e) => {
   }
   toggle.disabled = true;
   try {
-    if (requested) {
-      await autostartApi.enable();
-    } else {
-      await autostartApi.disable();
-    }
-    autostartEnabled = await autostartApi.isEnabled();
+    await setAutostart(requested);
     toggle.checked = autostartEnabled;
     $("#autostart-status").textContent = autostartEnabled ? "有効" : "無効";
   } catch (err) {
@@ -569,5 +639,7 @@ setInterval(() => {
 }, 5000);
 window.addEventListener("focus", renderAccessStats);
 
-init();
-loadAutostart();
+init()
+  .then(loadAutostart)
+  .then(showInitialAutostartPrompt)
+  .catch((err) => console.error(err));
