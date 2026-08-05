@@ -58,6 +58,11 @@ body {
   color: #d08a00;
 }
 
+.settings__note--inline {
+  width: auto;
+  white-space: nowrap;
+}
+
 .settings__credentials {
   display: grid;
   gap: 8px;

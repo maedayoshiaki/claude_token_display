@@ -77,8 +77,9 @@ Weekly
 - **バーを表示**: ON/OFF (OFF で進捗バーを隠してより省スペース表示に)
 - **Sonnet 週間を表示**: ON/OFF (OFF で Claude の Sonnet 部分を隠す)
 - **固定 (📌)**: ON にすると popover がフォーカスを失っても閉じない (作業中に常駐させたい時)
+- **起動時に自動起動**: 設定画面で ON にすると、macOS / Windows のログイン時にアプリを起動
 
-設定はすべて localStorage に永続化されます。
+表示設定は localStorage に、起動時自動起動は OS の設定に保存されます。
 
 ### 固定 / 移動 / リサイズ
 
