@@ -49,4 +49,3 @@
 - [ ] 署名・公証の検討 (mac codesign / Windows code signing)
 - [ ] Linux サポート (Secret Service)
 - [ ] Codex の `plan_type=prolite` 等、未知 plan の網羅検証
-- [ ] 起動時の自動起動 (LaunchAgent / Windows スタートアップ) のオプション化

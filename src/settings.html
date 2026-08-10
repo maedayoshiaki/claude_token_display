@@ -48,6 +48,13 @@
           </select>
         </label>
         <label class="settings__row">
+          <span class="settings__label">起動時に自動起動</span>
+          <span class="settings__inline">
+            <input id="autostart-toggle" type="checkbox" class="settings__control settings__control--check" />
+            <span id="autostart-status" class="settings__note settings__note--inline">未設定</span>
+          </span>
+        </label>
+        <label class="settings__row">
           <span class="settings__label">文字サイズ</span>
           <span class="settings__inline">
             <button id="font-smaller" class="icon-btn icon-btn--small" title="文字を小さく" aria-label="文字を小さく" type="button">A-</button>
@@ -156,7 +163,7 @@
       <section class="settings">
         <div class="settings__section-title">小さいモード</div>
         <label class="settings__row">
-          <span class="settings__label">トレイ表示</span>
+          <span class="settings__label">トレイ表示 (Claude)</span>
           <select id="tray-metric-select" class="settings__control">
             <option value="five_hour">5h セッション</option>
             <option value="weekly">週間</option>
@@ -171,7 +178,7 @@
           <input id="tray-codex-toggle" type="checkbox" class="settings__control settings__control--check" />
         </label>
         <label class="settings__row">
-          <span class="settings__label">極小ウィンドウ</span>
+          <span class="settings__label">極小ウィンドウ (Claude)</span>
           <select id="mini-metric-select" class="settings__control">
             <option value="five_hour">5h セッション</option>
             <option value="weekly">週間</option>
@@ -180,6 +187,20 @@
         </label>
       </section>
     </main>
+
+    <section id="autostart-prompt" class="settings-prompt" hidden>
+      <div class="settings-prompt__dialog" role="dialog" aria-modal="true" aria-labelledby="autostart-prompt-title">
+        <h1 id="autostart-prompt-title" class="settings-prompt__title">自動起動の設定</h1>
+        <p class="settings-prompt__text">
+          macOS / Windows へのログイン時に token_display を自動起動しますか？
+        </p>
+        <div class="settings-prompt__actions">
+          <button id="autostart-prompt-enable" class="settings-prompt__button settings-prompt__button--primary" type="button">ON にする</button>
+          <button id="autostart-prompt-disable" class="settings-prompt__button" type="button">OFF のまま</button>
+        </div>
+        <p id="autostart-prompt-status" class="settings-prompt__status" hidden></p>
+      </div>
+    </section>
     <script src="settings.js" defer></script>
   </body>
 </html>

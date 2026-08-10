@@ -1,6 +1,6 @@
 [package]
 name = "token_display"
-version = "0.9.3"
+version = "0.9.8"
 description = "Claude Code plan usage indicator for menu bar / system tray"
 edition = "2021"
 rust-version = "1.77"
@@ -18,6 +18,8 @@ tauri-plugin-positioner = { version = "2.0", features = ["tray-icon"] }
 # 多重起動防止。2 つ目のプロセスを即終了させ、常駐ポーラが二重に走って usage API を
 # 無駄打ちする (= 429 誘発) のを防ぐ。
 tauri-plugin-single-instance = "2"
+# OSログイン時の自動起動 (macOS LaunchAgent / Windows 登録)
+tauri-plugin-autostart = "2"
 # アプリ自身の自動更新 (署名付き成果物を DL → インストール → 再起動)。
 # 署名検証の公開鍵と latest.json エンドポイントは tauri.conf.json の plugins.updater に置く。
 tauri-plugin-updater = "2"
