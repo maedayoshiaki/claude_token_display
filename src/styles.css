@@ -843,7 +843,7 @@ body[data-density="condensed"] .bucket__pct--compact {
   white-space: nowrap;
 }
 
-body[data-density="condensed"] .provider[data-provider="claude"] .bucket__pct::before {
+body[data-density="condensed"] .provider[data-provider="claude"] .bucket--hero .bucket__pct::before {
   content: "5h:";
   font-size: 8px;
   line-height: 1;
@@ -1023,7 +1023,7 @@ body[data-density="minimal"][data-mini-metric="both"] .bucket__pct {
   display: inline-flex;
   align-items: baseline;
 }
-body[data-density="minimal"][data-mini-metric="both"] .provider[data-provider="claude"] .bucket__pct::before {
+body[data-density="minimal"][data-mini-metric="both"] .provider[data-provider="claude"] .bucket--hero .bucket__pct::before {
   content: "5h:";
   font-size: 9px;
   line-height: 1;
