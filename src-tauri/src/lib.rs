@@ -913,6 +913,11 @@ pub fn run() {
                 let _ = win.set_focus();
             }
         }))
+        // OSログイン時の自動起動。設定画面のトグルから登録 / 解除する。
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .plugin(tauri_plugin_positioner::init())
         // アプリ自身の自動更新。app.updater() を Rust から使うために登録する
         // (実際の check/DL/install は update::install_update コマンドで駆動)。

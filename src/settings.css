@@ -58,6 +58,80 @@ body {
   color: #d08a00;
 }
 
+.settings__note--inline {
+  width: auto;
+  white-space: nowrap;
+}
+
+.settings-prompt {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.42);
+  z-index: 10;
+}
+
+.settings-prompt[hidden] {
+  display: none;
+}
+
+.settings-prompt__dialog {
+  width: min(100%, 340px);
+  padding: 20px;
+  border: 1px solid var(--divider);
+  border-radius: 10px;
+  background: var(--bg);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.3);
+}
+
+.settings-prompt__title {
+  margin-bottom: 10px;
+  font-size: calc(17px * var(--text-scale));
+  font-weight: 700;
+}
+
+.settings-prompt__text {
+  color: var(--fg-dim);
+  font-size: calc(13px * var(--text-scale));
+  line-height: 1.5;
+}
+
+.settings-prompt__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.settings-prompt__button {
+  border: 1px solid var(--divider);
+  border-radius: 6px;
+  padding: 7px 12px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+}
+
+.settings-prompt__button--primary {
+  border-color: #0a84ff;
+  background: #0a84ff;
+  color: #fff;
+}
+
+.settings-prompt__button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.settings-prompt__status {
+  margin-top: 10px;
+  color: var(--bar-fill-high);
+  font-size: calc(11px * var(--text-scale));
+}
+
 .settings__credentials {
   display: grid;
   gap: 8px;
