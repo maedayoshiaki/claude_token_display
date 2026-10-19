@@ -9,6 +9,8 @@
   --divider: rgba(255, 255, 255, 0.08);
   --radius: 8px;
   --text-scale: 1;
+  /* どの表示候補も収まらないときだけ main.js が 1 未満にする縮小率 */
+  --fit-scale: 1;
   --window-shadow-pad: 4px;
   --window-shadow: 0 2px 7px rgba(0, 0, 0, 0.18);
 }
@@ -45,158 +47,23 @@
   padding: 0;
 }
 
+/* 小窓の文字はすべて rem で指定する (1rem = 13px × 文字サイズ × 縮小率)。 */
+html {
+  font-size: calc(13px * var(--text-scale) * var(--fit-scale));
+}
+
 html,
 body {
   background: transparent;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  font-size: calc(13px * var(--text-scale));
   color: var(--fg);
   height: 100%;
   overflow: hidden;
 }
 
 body {
+  font-size: 1rem;
   padding: var(--window-shadow-pad);
-}
-
-.card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  background: var(--bg);
-  border-radius: var(--radius);
-  padding: 8px 14px 10px;
-  overflow: hidden;
-  box-shadow: var(--window-shadow);
-}
-
-.update-banner {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
-  padding: 5px 8px;
-  border-radius: 6px;
-  background: rgba(10, 132, 255, 0.14);
-  color: var(--fg);
-  font-size: 0.85em;
-  line-height: 1.2;
-}
-.update-banner[hidden] {
-  display: none;
-}
-.update-banner__text {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.update-banner__btn {
-  flex: 0 0 auto;
-  border: none;
-  border-radius: 5px;
-  padding: 2px 8px;
-  background: #0a84ff;
-  color: #fff;
-  font-size: 0.95em;
-  cursor: pointer;
-}
-.update-banner__btn:hover {
-  background: #0a74e0;
-}
-.update-banner__btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-/* 失敗時フォールバック用の「開く」: 目立たない枠線ボタン。 */
-.update-banner__btn--ghost {
-  background: transparent;
-  color: #0a84ff;
-  border: 1px solid rgba(10, 132, 255, 0.5);
-}
-.update-banner__btn--ghost:hover {
-  background: rgba(10, 132, 255, 0.12);
-}
-.update-banner__btn--ghost[hidden] {
-  display: none;
-}
-.update-banner__close {
-  flex: 0 0 auto;
-  border: none;
-  background: none;
-  color: var(--fg-dim);
-  font-size: 1.1em;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 2px;
-}
-.update-banner__close:hover {
-  color: var(--fg);
-}
-
-/* 極小モードでは更新バナーは場所を取りすぎるので隠す。
-   代わりに右端の小さな「更新マーク」(.update-mark) で「更新あり」を示す。 */
-body[data-density="minimal"] .update-banner,
-body[data-density="condensed"] .update-banner {
-  display: none;
-}
-
-/* 更新マーク: banner を隠す condensed/minimal で「更新あり」を示す小さなタブ。
-   クリックでリリースページを開く。表示可否は body[data-update-available] × density で制御。 */
-.update-mark {
-  display: none;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 4px 0 0 4px;
-  background: #0a84ff;
-  color: #fff;
-  font-size: 12px;
-  line-height: 1;
-  cursor: pointer;
-}
-.update-mark:hover {
-  background: #0a74e0;
-}
-body[data-update-available="true"][data-density="condensed"] .update-mark {
-  display: inline-flex;
-  min-width: 13px;
-  width: 13px;
-  height: 13px;
-}
-body[data-update-available="true"][data-density="minimal"] .update-mark {
-  display: inline-flex;
-  min-width: 13px;
-  width: 13px;
-  height: 13px;
-}
-
-.card__header {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 2px;
-  user-select: none;
-}
-.header-actions--right {
-  margin-left: auto;
-  flex: 0 0 auto;
-}
-
-body[data-pinned="true"] .card {
-  cursor: move;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 4px;
 }
 
 .icon-btn {
@@ -332,31 +199,249 @@ body[data-pinned="true"] .card {
   flex: 0 0 auto;
 }
 
-.bucket {
-  padding: 8px 0;
-  border-top: 1px solid var(--divider);
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: rgba(10, 132, 255, 0.14);
+  color: var(--fg);
+  font-size: 0.85em;
+  line-height: 1.2;
 }
-.bucket:first-of-type {
-  border-top: none;
-  padding-top: 0;
-}
-.bucket[hidden] {
+.update-banner[hidden] {
   display: none;
 }
-.bucket--hero {
-  padding-bottom: 2px;
+.update-banner__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.update-banner__btn {
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 5px;
+  padding: 2px 8px;
+  background: #0a84ff;
+  color: #fff;
+  font-size: 0.95em;
+  cursor: pointer;
+}
+.update-banner__btn:hover {
+  background: #0a74e0;
+}
+.update-banner__btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+/* 失敗時フォールバック用の「開く」: 目立たない枠線ボタン。 */
+.update-banner__btn--ghost {
+  background: transparent;
+  color: #0a84ff;
+  border: 1px solid rgba(10, 132, 255, 0.5);
+}
+.update-banner__btn--ghost:hover {
+  background: rgba(10, 132, 255, 0.12);
+}
+.update-banner__btn--ghost[hidden] {
+  display: none;
+}
+.update-banner__close {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  color: var(--fg-dim);
+  font-size: 1.1em;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.update-banner__close:hover {
+  color: var(--fg);
+}
+
+/* ───────── 小窓 (popover) ─────────
+   どの形で何を出すかは main.js の chooseView が決める。情報の多い順に並べた候補を
+   実際に当て、あふれない最初の候補を採る (固定の閾値は持たない)。候補は body の
+   data 属性で表す:
+     data-form    card | line | cols | stack   全体の形
+     data-icons   row | overlay                アイコンを行で置くか、hover で重ねるか
+     data-footer / data-titles / data-bar  1 | 0   card の飾り
+     data-names   full | short | none          プロバイダ名
+     data-sonnet  1 | 0
+     data-resets  both | 5h | none
+     data-metric  both | 5h | weekly
+   あふれは #content (と行として置いたヘッダ・フッタ) の scrollWidth / scrollHeight で
+   検出する。そのため #content の中では overflow で切らず、flex アイテムを中身より
+   縮めない (省略記号で切るのはエラー文だけ)。上下の中央寄せは、あふれたときに
+   上側へはみ出さない (= 検出できる) よう、伸び縮みする空き要素で行う。 */
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg);
+  border-radius: var(--radius);
+  padding: 8px 14px 10px;
+  overflow: hidden;
+  box-shadow: var(--window-shadow);
+}
+
+body[data-pinned="true"] .card {
+  cursor: move;
+}
+
+/* ── アイコン ── */
+.card__header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  margin-bottom: 2px;
+  user-select: none;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+/* 更新マーク: バナーを出さない形 (card 以外) の hover アイコン列にだけ出す。 */
+.update-mark {
+  display: none;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: #0a84ff;
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+.update-mark:hover {
+  background: #0a74e0;
+}
+body[data-update-available="true"]:not([data-form="card"]) .update-mark {
+  display: inline-flex;
+}
+
+/* アイコンを重ねる形: 普段は隠し、card を hover / フォーカスしたときだけ右上に出す。
+   大きさは px 固定 (縮小率の影響を受けず、極小でも押せる)。 */
+body[data-icons="overlay"] .card__header {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  left: 2px;
+  z-index: 3;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+body[data-icons="overlay"] .card:hover .card__header,
+body[data-icons="overlay"] .card:focus-within .card__header {
+  opacity: 1;
+  pointer-events: auto;
+}
+body[data-icons="overlay"] .header-actions {
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 1px;
+  border-radius: 5px;
+  background: var(--bg);
+  box-shadow: 0 0 0 1px var(--divider);
+}
+body[data-icons="overlay"] .icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1;
+}
+
+/* 更新あり: バナーを出さない形では右上の小さな点で知らせる (操作は hover 時の ↑)。 */
+body[data-update-available="true"]:not([data-form="card"]) .card::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #0a84ff;
+  pointer-events: none;
+}
+body:not([data-form="card"]) .update-banner {
+  display: none;
+}
+
+/* ── 共通の中身 ── */
+#content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.provider {
+  flex: 0 0 auto;
+}
+body[data-show-claude="false"] .provider[data-provider="claude"],
+body[data-show-codex="false"] .provider[data-provider="codex"] {
+  display: none !important;
+}
+
+.provider__head {
+  display: flex;
+  align-items: center;
+  user-select: none;
+}
+.provider__name {
+  font-size: 0.77rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.name-short,
+.metric-label,
+.lbl-short {
+  display: none;
+}
+
+.provider__body[hidden],
+.provider__error[hidden],
+.bucket__sonnet[hidden] {
+  display: none !important;
 }
 
 .bucket__title {
-  font-size: calc(11px * var(--text-scale));
+  font-size: 0.846rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--fg-dim);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
+  white-space: nowrap;
 }
 
-/* 既定では % の下にリセット時刻を縦に並べる (時間は % の下)。
-   condensed / minimal は各自 display/flex-direction を上書きするので影響しない。 */
 .bucket__row {
   display: flex;
   flex-direction: column;
@@ -366,68 +451,17 @@ body[data-pinned="true"] .card {
 }
 
 .bucket__pct {
-  font-size: calc(22px * var(--text-scale));
+  font-size: 1.69rem;
   font-weight: 600;
-  letter-spacing: 0;
+  line-height: 1.15;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .bucket__resets {
-  font-size: calc(11px * var(--text-scale));
+  font-size: 0.846rem;
   color: var(--fg-dim);
-  text-align: right;
-}
-
-.bucket--compact {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 0 0 2px;
-  border-top: none;
-  font-size: calc(10px * var(--text-scale));
-  color: var(--fg-dim);
-  line-height: 1.2;
-}
-.bucket--compact .bucket__name {
-  flex: 0 0 auto;
-  font-size: calc(10px * var(--text-scale));
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  color: var(--fg-dim);
-  text-transform: none;
-  min-width: 0;
-}
-.bucket__pct--compact {
-  font-size: calc(11px * var(--text-scale));
-  font-weight: 600;
   font-variant-numeric: tabular-nums;
-  color: var(--fg);
-  flex: 0 0 auto;
-}
-.bucket__pcts {
-  flex: 0 1 auto;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.bucket__sonnet {
-  color: var(--fg-dim);
-  font-size: calc(10px * var(--text-scale));
-  font-variant-numeric: tabular-nums;
-}
-.bucket__sonnet[hidden] {
-  display: none;
-}
-.bucket__resets--compact {
-  flex: 1 1 auto;
-  font-size: calc(10px * var(--text-scale));
-  color: var(--fg-dim);
-  text-align: right;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -438,7 +472,6 @@ body[data-pinned="true"] .card {
   border-radius: 3px;
   overflow: hidden;
 }
-
 .bar__fill {
   height: 100%;
   width: 0%;
@@ -446,7 +479,6 @@ body[data-pinned="true"] .card {
   border-radius: 3px;
   transition: width 0.3s ease, background-color 0.3s ease;
 }
-
 .bar__fill[data-level="mid"] {
   background: var(--bar-fill-mid);
 }
@@ -454,132 +486,259 @@ body[data-pinned="true"] .card {
   background: var(--bar-fill-high);
 }
 
-/* バー非表示時は hero のバーだけ消し、その分の縦余白も詰める */
-body[data-show-bar="false"] .bucket--hero .bar {
-  display: none;
-}
-body[data-show-bar="false"] .bucket--hero {
-  padding-bottom: 0;
-}
-body[data-show-bar="false"] .bucket--hero .bucket__row {
-  margin-bottom: 0;
-}
-
-/* プロバイダ表示切り替え。
-   condensed / minimal 密度の `.provider + .provider { display: flex }` (詳細度 0,3,1) と
-   同点になり、後勝ちで Codex (2 番目の provider) が再表示されてしまうため、
-   --show-weekly / --show-resets と同様に !important で確実に隠す。 */
-body[data-show-claude="false"] .provider[data-provider="claude"] { display: none !important; }
-body[data-show-codex="false"] .provider[data-provider="codex"] { display: none !important; }
-
-/* 週間使用率非表示 */
-body[data-show-weekly="false"] .bucket--compact { display: none !important; }
-
-/* リセット時刻非表示 */
-body[data-show-resets="false"] .bucket__resets,
-body[data-show-resets="false"] .bucket__resets--compact { display: none !important; }
-
-/* プレビューラベル */
-.preview-label {
-  font-size: calc(10px * var(--text-scale));
-  color: var(--fg-dim);
-  text-align: center;
-  padding: 0 0 4px;
-  opacity: 0.45;
-  user-select: none;
-}
-.preview-label[hidden] { display: none; }
-
-#content {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  scrollbar-width: none; /* Firefox */
-}
-#content::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none; /* Chromium / WebView2 */
-}
-
-.provider {
-  padding-bottom: 6px;
-}
-.provider + .provider {
-  margin-top: 6px;
-  border-top: 1px solid var(--divider);
-  padding-top: 8px;
-}
-.provider__head {
+.bucket--weekly {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: nowrap;
-  gap: 6px;
-  margin-bottom: 0;
-  min-width: 0;
-  user-select: none;
-}
-.provider__name {
-  flex: 0 1 auto;
-  min-width: 0;
-  font-size: calc(10px * var(--text-scale));
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 6px;
+  padding-top: 2px;
+  font-size: 0.77rem;
+  line-height: 1.25;
   color: var(--fg-dim);
-  text-transform: uppercase;
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+.bucket--weekly .bucket__name {
+  font-weight: 500;
+  letter-spacing: 0.02em;
   white-space: nowrap;
 }
-.provider__primary {
-  font-size: calc(9px * var(--text-scale));
-  letter-spacing: 0.06em;
+.bucket__line {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+.bucket__pct--weekly {
+  font-size: 0.846rem;
+  line-height: inherit;
+  color: var(--fg);
+}
+.bucket__sonnet {
   color: var(--fg-dim);
-  background: var(--divider);
-  padding: 1px 6px;
-  border-radius: 8px;
-  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-.provider__primary[hidden] {
-  display: none;
+.bucket--weekly .bucket__resets {
+  margin-left: auto;
+  font-size: 0.77rem;
 }
+
 .provider__error {
   margin: 4px 0;
   padding: 6px 8px;
-  background: rgba(255, 69, 58, 0.10);
+  background: rgba(255, 69, 58, 0.1);
   border: 1px solid rgba(255, 69, 58, 0.25);
   border-radius: 6px;
-  font-size: calc(11px * var(--text-scale));
+  font-size: 0.846rem;
   color: var(--bar-fill-high);
   line-height: 1.4;
-}
-.provider__error[hidden] {
-  display: none;
-}
-.provider__body[hidden] {
-  display: none;
-}
-
-.error {
-  margin-top: 8px;
-  padding: 8px;
-  background: rgba(255, 69, 58, 0.12);
-  border: 1px solid rgba(255, 69, 58, 0.3);
-  border-radius: 8px;
-  font-size: calc(12px * var(--text-scale));
-  color: var(--bar-fill-high);
-  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .card__footer {
   margin-top: 6px;
   flex: 0 0 auto;
-  font-size: calc(10px * var(--text-scale));
+  font-size: 0.77rem;
   color: var(--fg-dim);
   text-align: right;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── card (大きい窓): 見出し・バー・フッタつき ── */
+body[data-form="card"] .provider {
+  padding-bottom: 6px;
+}
+body[data-form="card"] .provider + .provider {
+  margin-top: 2px;
+  border-top: 1px solid var(--divider);
+  padding-top: 8px;
+}
+body[data-form="card"][data-show-claude="false"] .provider + .provider {
+  margin-top: 0;
+  border-top: none;
+  padding-top: 0;
+}
+body[data-form="card"] .bucket--hero {
+  padding-top: 2px;
+}
+
+/* ── 設定による非表示 (どの形でも効く) ── */
+body[data-show-bar="false"] .bar,
+body[data-bar="0"] .bar {
+  display: none;
+}
+body[data-show-bar="false"] .bucket__row,
+body[data-bar="0"] .bucket__row {
+  margin-bottom: 2px;
+}
+body[data-titles="0"] .bucket__title,
+body[data-footer="0"] .card__footer {
+  display: none;
+}
+body[data-show-weekly="false"] .bucket--weekly {
+  display: none !important;
+}
+body[data-show-resets="false"] .bucket__resets {
+  display: none !important;
+}
+
+/* ── 小さい形 (line / cols / stack) に共通 ── */
+body:not([data-form="card"]) {
+  --window-shadow-pad: 2px;
+}
+body:not([data-form="card"]) .card {
+  padding: 3px 6px;
+}
+body:not([data-form="card"]) .bucket__title,
+body:not([data-form="card"]) .bar,
+body:not([data-form="card"]) .card__footer,
+body:not([data-form="card"]) .bucket--weekly .bucket__name,
+body:not([data-form="card"]) .lbl-long {
+  display: none;
+}
+body:not([data-form="card"]) .metric-label,
+body:not([data-form="card"]) .lbl-short {
+  display: inline;
+  margin-right: 1px;
+  font-size: 0.62rem;
+  font-weight: 400;
+  color: var(--fg-dim);
+}
+body:not([data-form="card"]) .provider__name {
+  font-size: 0.62rem;
+  letter-spacing: 0;
+}
+body:not([data-form="card"]) .provider__body {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 6px;
+}
+body:not([data-form="card"]) .bucket {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 0;
+  font-size: 1rem;
+  line-height: normal;
+}
+body:not([data-form="card"]) .bucket__row {
+  margin: 0;
+}
+body:not([data-form="card"]) .bucket__pct {
+  font-size: 1.15rem;
+  line-height: 1.1;
+  color: var(--fg);
+}
+body:not([data-form="card"]) .bucket__line {
+  gap: 3px;
+}
+body:not([data-form="card"]) .bucket__sonnet {
+  font-size: 0.77rem;
+}
+body:not([data-form="card"]) .bucket__resets {
+  margin: 0;
+  font-size: 0.65rem;
+  line-height: 1.1;
+}
+/* 小さい形のエラーは「! 理由」を 1 行にし、収まらない分は省略記号で切る (全文は title)。 */
+body:not([data-form="card"]) .provider__error {
+  flex: 1 1 auto;
+  min-width: 2.5em;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 0.77rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body:not([data-form="card"]) .provider__error::before {
+  content: "! ";
+  font-weight: 700;
+}
+
+/* 上下の中央寄せ。空き要素が余白を分け合い、足りなければ 0 まで縮む。 */
+body:not([data-form="card"]) #content::before,
+body:not([data-form="card"]) #content::after {
+  content: "";
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+/* 候補の段階 (main.js が付け外しする) */
+body[data-names="short"] .name-full {
+  display: none;
+}
+body[data-names="short"] .name-short {
+  display: inline;
+}
+body[data-names="none"] .provider__head {
+  display: none;
+}
+body[data-sonnet="0"] .bucket__sonnet {
+  display: none;
+}
+body[data-resets="5h"] .bucket--weekly .bucket__resets,
+body[data-resets="none"] .bucket__resets {
+  display: none;
+}
+body[data-metric="5h"] .bucket--weekly,
+body[data-metric="weekly"] .bucket--hero {
+  display: none;
+}
+
+/* line: プロバイダごとに 1 行 (時刻は各 % の下) */
+body[data-form="line"] .provider {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 5px;
+}
+body[data-form="line"] .provider + .provider,
+body[data-form="stack"] .provider + .provider {
+  margin-top: 3px;
+}
+
+/* stack: 細く高い窓用。名前・5h・週間を縦に積む */
+body[data-form="stack"] .provider {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+body[data-form="stack"] .provider__body {
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* cols: 横長で低い窓用。Claude / Codex を左右に並べる */
+body[data-form="cols"] #content {
+  flex-direction: row;
+}
+body[data-form="cols"] #content::before,
+body[data-form="cols"] #content::after {
+  display: none;
+}
+body[data-form="cols"] .provider {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 5px;
+  margin-block: auto;
+}
+body[data-form="cols"] .provider + .provider {
+  margin-left: 10px;
+  padding-left: 10px;
+  border-left: 1px solid var(--divider);
+}
+body[data-form="cols"] .provider__error {
+  max-width: 9em;
 }
 
 /* 視覚的なグリップは廃止。右下の不可視な操作エリアだけ残してドラッグでリサイズ可能。 */
@@ -592,933 +751,4 @@ body[data-show-resets="false"] .bucket__resets--compact { display: none !importa
   height: 16px;
   cursor: nwse-resize;
   background: transparent;
-}
-
-@media (max-width: 240px) {
-  body {
-    padding: var(--window-shadow-pad);
-  }
-
-  .card {
-    padding: 10px;
-  }
-
-  .card__header {
-    align-items: flex-start;
-    gap: 4px;
-    margin-bottom: 8px;
-  }
-
-  .card__header h1 {
-    flex-basis: 100%;
-  }
-
-  .header-actions {
-    width: 100%;
-  }
-
-  .icon-btn {
-    padding: 0 3px;
-  }
-
-  /* ヒーロー側だけ縦余白を詰める。 .bucket--compact (padding: 0 0 2px) を巻き込まないよう :not() で除外 */
-  .bucket:not(.bucket--compact) {
-    padding: 6px 0;
-  }
-
-  /* ヒーロー側だけ縮める。 .bucket__pct--compact (11px) を巻き込まないよう :not() で除外 */
-  .bucket__pct:not(.bucket__pct--compact) {
-    font-size: calc(18px * var(--text-scale));
-  }
-
-  .bucket--hero .bucket__resets {
-    text-align: left;
-  }
-
-  /* ナロー時も weekly 行は 1 行のまま (溢れたら reset 側を省略) */
-  .bucket--compact {
-    flex-wrap: nowrap;
-    gap: 4px;
-    min-width: 0;
-  }
-  .bucket--compact > * {
-    min-width: 0;
-  }
-}
-
-body[data-density="compact"] {
-  --window-shadow-pad: 3px;
-}
-
-body[data-density="compact"] .card {
-  padding: 6px 10px 7px;
-}
-
-body[data-density="compact"] .card__header {
-  margin-bottom: 4px;
-}
-
-body[data-density="compact"] .card__footer {
-  display: none;
-}
-
-body[data-density="compact"] .bucket--hero .bar {
-  display: none;
-}
-
-body[data-density="compact"] .bucket--hero {
-  padding-bottom: 0;
-}
-
-body[data-density="compact"] .bucket--hero .bucket__row {
-  margin-bottom: 0;
-}
-
-body[data-density="condensed"] {
-  --window-shadow-pad: 2px;
-  font-size: 11px;
-}
-
-body[data-density="condensed"] .card {
-  justify-content: center;
-  padding: 5px 24px 5px 7px;
-}
-
-body[data-density="condensed"] .settings,
-body[data-density="condensed"] .card__footer,
-body[data-density="condensed"] .bucket__title,
-body[data-density="condensed"] .bucket__resets,
-body[data-density="condensed"] .bar {
-  display: none !important;
-}
-
-body[data-density="condensed"] .card__header {
-  position: absolute;
-  top: 50%;
-  right: 1px;
-  z-index: 2;
-  margin: 0;
-  transform: translateY(-50%);
-}
-
-body[data-density="condensed"] .header-actions {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  width: auto;
-  margin-left: 0;
-  gap: 0;
-}
-
-/* refresh / settings は平常は隠し、card を hover / フォーカスしたときだけ
-   右端に小さく展開する (小窓でも押せるように)。 */
-body[data-density="condensed"] #settings,
-body[data-density="condensed"] #refresh {
-  display: none;
-}
-
-body[data-density="condensed"] .card:hover #settings,
-body[data-density="condensed"] .card:hover #refresh,
-body[data-density="condensed"] .card:focus-within #settings,
-body[data-density="condensed"] .card:focus-within #refresh {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 13px;
-  width: 13px;
-  height: 13px;
-  padding: 0;
-  font-size: 10px;
-  line-height: 1;
-  border-radius: 4px 0 0 4px;
-  background: var(--bg);
-  color: var(--fg-dim);
-}
-
-body[data-density="condensed"] #pin {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 13px;
-  width: 13px;
-  height: 13px;
-  padding: 0;
-  border-radius: 4px 0 0 4px;
-  font-size: 10px;
-  line-height: 1;
-  background: var(--bar-bg);
-}
-
-body[data-density="condensed"] #pin[aria-pressed="true"] {
-  background: var(--divider);
-  color: var(--fg);
-}
-
-body[data-density="condensed"] #content {
-  flex: 0 1 auto;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 4px;
-  overflow: hidden;
-}
-
-body[data-density="condensed"] .provider,
-body[data-density="condensed"] .provider + .provider {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  border-top: none;
-  min-width: 0;
-}
-
-body[data-density="condensed"] .provider__head {
-  flex: 0 0 auto;
-  margin: 0;
-  min-width: 0;
-}
-
-body[data-density="condensed"] .provider__name {
-  max-width: 48px;
-  font-size: 8px;
-  line-height: 1;
-  letter-spacing: 0;
-}
-
-body[data-density="condensed"] .provider__body {
-  flex: 1 1 auto;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-  overflow: hidden;
-}
-
-body[data-density="condensed"] .provider__body[hidden] {
-  display: none;
-}
-
-body[data-density="condensed"] .bucket--hero,
-body[data-density="condensed"] .bucket--compact {
-  display: flex;
-  align-items: baseline;
-  gap: 2px;
-  padding: 0;
-  border-top: none;
-  min-width: 0;
-}
-
-body[data-density="condensed"] .bucket--hero .bucket__row {
-  display: flex;
-  align-items: baseline;
-  margin: 0;
-}
-
-body[data-density="condensed"] .bucket__pct,
-body[data-density="condensed"] .bucket__pct--compact {
-  display: inline-flex;
-  align-items: baseline;
-  font-size: 14px;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-body[data-density="condensed"] .bucket__pct::before {
-  content: "5h:";
-  font-size: 8px;
-  line-height: 1;
-  opacity: 0.6;
-  margin-right: 1px;
-}
-
-body[data-density="condensed"] .bucket__pct--compact::before {
-  content: "w:";
-  font-size: 8px;
-  line-height: 1;
-  opacity: 0.6;
-  margin-right: 1px;
-}
-
-body[data-density="condensed"] .bucket--compact .bucket__name,
-body[data-density="condensed"] .bucket--compact .bucket__sonnet,
-body[data-density="condensed"] .bucket--compact .bucket__resets--compact {
-  display: none;
-}
-
-body[data-density="condensed"] .provider__error {
-  flex: 1 1 auto;
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--bar-fill-high);
-  font-size: 13px;
-  line-height: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-body[data-density="minimal"] {
-  --window-shadow-pad: 2px;
-  font-size: 11px;
-}
-
-body[data-density="minimal"] .card {
-  justify-content: center;
-  padding: 4px 22px 4px 6px;
-}
-
-body[data-density="minimal"] .settings,
-body[data-density="minimal"] .card__footer,
-body[data-density="minimal"] .bucket__title,
-body[data-density="minimal"] .bucket__resets,
-body[data-density="minimal"] .bar {
-  display: none !important;
-}
-
-body[data-density="minimal"] .card__header {
-  position: absolute;
-  top: 50%;
-  right: 1px;
-  z-index: 2;
-  margin: 0;
-  transform: translateY(-50%);
-}
-
-body[data-density="minimal"] .header-actions {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  width: auto;
-  margin-left: 0;
-  gap: 0;
-}
-
-/* refresh / settings は平常は隠し、card を hover / フォーカスしたときだけ
-   右端に小さく展開する (小窓でも押せるように)。 */
-body[data-density="minimal"] #settings,
-body[data-density="minimal"] #refresh {
-  display: none;
-}
-
-body[data-density="minimal"] .card:hover #settings,
-body[data-density="minimal"] .card:hover #refresh,
-body[data-density="minimal"] .card:focus-within #settings,
-body[data-density="minimal"] .card:focus-within #refresh {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 13px;
-  width: 13px;
-  height: 13px;
-  padding: 0;
-  font-size: 10px;
-  line-height: 1;
-  border-radius: 4px 0 0 4px;
-  background: var(--bg);
-  color: var(--fg-dim);
-}
-
-body[data-density="minimal"] #pin {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 13px;
-  width: 13px;
-  height: 13px;
-  padding: 0;
-  border-radius: 4px 0 0 4px;
-  font-size: 10px;
-  line-height: 1;
-  background: var(--bar-bg);
-}
-
-body[data-density="minimal"] #pin[aria-pressed="true"] {
-  background: var(--divider);
-  color: var(--fg);
-}
-
-/* compact bucket: デフォルト (five_hour) は非表示 */
-body[data-density="minimal"] .bucket--compact { display: none !important; }
-
-/* --- weekly のみ: w:XX% を大きく表示 --- */
-body[data-density="minimal"][data-mini-metric="weekly"] .bucket--hero { display: none !important; }
-body[data-density="minimal"][data-mini-metric="weekly"] .bucket--compact {
-  display: flex !important;
-  gap: 0;
-  padding: 0;
-}
-body[data-density="minimal"][data-mini-metric="weekly"] .bucket--compact .bucket__name,
-body[data-density="minimal"][data-mini-metric="weekly"] .bucket--compact .bucket__sonnet,
-body[data-density="minimal"][data-mini-metric="weekly"] .bucket--compact .bucket__resets--compact { display: none; }
-body[data-density="minimal"][data-mini-metric="weekly"] .bucket__pct--compact {
-  display: inline-flex;
-  align-items: baseline;
-  font-size: 15px;
-  line-height: 1;
-}
-body[data-density="minimal"][data-mini-metric="weekly"] .bucket__pct--compact::before {
-  content: "w:";
-  font-size: 9px;
-  line-height: 1;
-  opacity: 0.6;
-  margin-right: 1px;
-}
-
-/* --- 両方: 5h:XX% w:XX% を横並びで表示 --- */
-body[data-density="minimal"][data-mini-metric="both"] .provider__body {
-  display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  gap: 5px;
-}
-body[data-density="minimal"][data-mini-metric="both"] .bucket--hero {
-  display: flex !important;
-  align-items: baseline;
-  padding: 0;
-}
-body[data-density="minimal"][data-mini-metric="both"] .bucket--hero .bucket__row {
-  display: flex !important;
-  align-items: baseline;
-  margin: 0;
-}
-body[data-density="minimal"][data-mini-metric="both"] .bucket--compact {
-  display: flex !important;
-  align-items: baseline;
-  gap: 0;
-  padding: 0;
-}
-body[data-density="minimal"][data-mini-metric="both"] .bucket--compact .bucket__name,
-body[data-density="minimal"][data-mini-metric="both"] .bucket--compact .bucket__sonnet,
-body[data-density="minimal"][data-mini-metric="both"] .bucket--compact .bucket__resets--compact { display: none; }
-/* 5h: ラベルを hero の % の前に付加 */
-body[data-density="minimal"][data-mini-metric="both"] .bucket__pct {
-  display: inline-flex;
-  align-items: baseline;
-}
-body[data-density="minimal"][data-mini-metric="both"] .bucket__pct::before {
-  content: "5h:";
-  font-size: 9px;
-  line-height: 1;
-  opacity: 0.6;
-  margin-right: 1px;
-}
-/* w: ラベルを weekly の % の前に付加 */
-body[data-density="minimal"][data-mini-metric="both"] .bucket__pct--compact {
-  display: inline-flex;
-  align-items: baseline;
-  font-size: 15px;
-  line-height: 1;
-}
-body[data-density="minimal"][data-mini-metric="both"] .bucket__pct--compact::before {
-  content: "w:";
-  font-size: 9px;
-  line-height: 1;
-  opacity: 0.6;
-  margin-right: 1px;
-}
-
-/* weekly を併記する (both / weekly) 小モードで、かつ幅が狭い (data-min-narrow) ときは、
-   見出し (CLAUDE / CODEX) を横に置くと weekly がはみ出すので、指標の上に縦に積んで横幅を
-   節約する。幅に余裕があれば見出しは横 (name の右に指標) のままにして縦を詰める。 */
-body[data-min-narrow="true"][data-density="minimal"][data-mini-metric="both"] .provider,
-body[data-min-narrow="true"][data-density="minimal"][data-mini-metric="weekly"] .provider {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-}
-body[data-density="minimal"][data-mini-metric="both"] .provider__name,
-body[data-density="minimal"][data-mini-metric="weekly"] .provider__name {
-  max-width: none;
-}
-
-body[data-density="minimal"] #content {
-  flex: 0 1 auto;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
-  overflow: hidden;
-}
-
-body[data-density="minimal"] .provider,
-body[data-density="minimal"] .provider + .provider {
-  display: flex;
-  align-items: baseline;
-  gap: 5px;
-  margin: 0;
-  padding: 0;
-  border-top: none;
-  min-width: 0;
-}
-
-body[data-density="minimal"] .provider__head {
-  flex: 0 0 auto;
-  margin: 0;
-  min-width: 0;
-}
-
-body[data-density="minimal"] .provider__name {
-  max-width: 42px;
-  font-size: 8px;
-  line-height: 1;
-  letter-spacing: 0;
-}
-
-body[data-density="minimal"] .provider__body {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-/* エラー時は body を確実に隠す。data-mini-metric="both" の display 上書き
-   (通常時 / 幅 <=44px の block 化) と詳細度が同点になり、後勝ちで hidden な body が
-   再表示されて古い「—%」がエラーの「!」と一緒に出てしまう。!important で固定して、
-   エラー時は「!」だけを出す。 */
-body[data-density="minimal"] .provider__body[hidden] {
-  display: none !important;
-}
-
-body[data-density="minimal"] .bucket--hero {
-  display: block;
-  padding: 0;
-  border-top: none;
-}
-
-body[data-density="minimal"] .bucket__row {
-  display: block;
-  margin: 0;
-}
-
-body[data-density="minimal"] .bucket__pct {
-  font-size: 15px;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-/* 極小モードのエラーは「!」インジケータだけ。flex-grow させると
-   透明なエラー文の分まで横幅を確保してしまい余白が崩れるので、
-   グリフ幅 (1ch) に固定する。
-   透明な本文 (data-error の textContent) は width:1ch の中で折り返すと縦に
-   長く伸び、provider を数百 px に膨らませてしまう。#content は justify-content:
-   center + overflow:hidden なので、膨らんだ中身が上へはみ出して「!」が画面外に
-   クリップされ、極小ウィンドウで何も出なくなる。white-space:nowrap で本文を 1 行に
-   抑え、height:1em で高さを「!」1 文字ぶんに固定して膨張を防ぐ。 */
-body[data-density="minimal"] .provider__error {
-  position: relative;
-  flex: 0 0 auto;
-  width: 1ch;
-  min-width: 1ch;
-  height: 1em;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: transparent;
-  font-size: 14px;
-  line-height: 1;
-  white-space: nowrap;
-  overflow: visible;
-}
-
-body[data-density="minimal"] .provider__error::before {
-  content: "!";
-  position: absolute;
-  inset: 0 auto auto 0;
-  color: var(--bar-fill-high);
-  font-size: 14px;
-  line-height: 1;
-}
-
-@media (max-width: 108px) {
-  body[data-density="minimal"] .card {
-    padding: 4px 20px 4px 5px;
-  }
-
-  body[data-density="minimal"] .provider,
-  body[data-density="minimal"] .provider + .provider {
-    gap: 4px;
-  }
-
-  body[data-density="minimal"] .provider__name {
-    position: relative;
-    width: 1ch;
-    max-width: 1ch;
-    color: transparent;
-  }
-
-  body[data-density="minimal"] .provider__name::before {
-    position: absolute;
-    inset: 0 auto auto 0;
-    color: var(--fg-dim);
-  }
-
-  body[data-density="minimal"] .provider[data-provider="claude"] .provider__name::before {
-    content: "C";
-  }
-
-  body[data-density="minimal"] .provider[data-provider="codex"] .provider__name::before {
-    content: "X";
-  }
-
-  body[data-density="minimal"][data-mini-metric="both"] .provider__body {
-    gap: 4px;
-  }
-
-  body[data-density="minimal"][data-mini-metric="both"] .bucket__pct::before,
-  body[data-density="minimal"][data-mini-metric="both"] .bucket__pct--compact::before {
-    content: none;
-  }
-}
-
-@media (max-width: 84px) {
-  body[data-density="minimal"] .card {
-    padding: 3px 18px 3px 4px;
-  }
-
-  body[data-density="minimal"] #pin {
-    width: 14px;
-    min-width: 14px;
-    height: 18px;
-    font-size: 10px;
-  }
-
-  body[data-density="minimal"] #content {
-    gap: 1px;
-  }
-
-  body[data-density="minimal"] .provider,
-  body[data-density="minimal"] .provider + .provider {
-    gap: 3px;
-  }
-
-  body[data-density="minimal"] .provider__body {
-    overflow: hidden;
-  }
-
-  body[data-density="minimal"][data-mini-metric="both"] .provider__body {
-    gap: 2px;
-  }
-
-  body[data-density="minimal"] .bucket__pct,
-  body[data-density="minimal"][data-mini-metric="weekly"] .bucket__pct--compact,
-  body[data-density="minimal"][data-mini-metric="both"] .bucket__pct,
-  body[data-density="minimal"][data-mini-metric="both"] .bucket__pct--compact {
-    font-size: 10px;
-  }
-}
-
-@media (max-width: 60px) {
-  body[data-density="minimal"] {
-    --window-shadow-pad: 1px;
-  }
-
-  body[data-density="minimal"] .card {
-    padding: 2px 14px 2px 2px;
-  }
-
-  body[data-density="minimal"] #pin {
-    width: 12px;
-    min-width: 12px;
-    height: 16px;
-    font-size: 9px;
-  }
-
-  body[data-density="minimal"] #content {
-    gap: 0;
-  }
-
-  body[data-density="minimal"] .provider,
-  body[data-density="minimal"] .provider + .provider {
-    gap: 0;
-  }
-
-  body[data-density="minimal"] .provider__head {
-    display: none;
-  }
-
-  body[data-density="minimal"] .provider__body {
-    flex: 1 1 100%;
-  }
-
-  body[data-density="minimal"] .bucket__pct,
-  body[data-density="minimal"][data-mini-metric="weekly"] .bucket__pct--compact {
-    font-size: 12px;
-  }
-
-  body[data-density="minimal"][data-mini-metric="both"] .provider__body {
-    gap: 1px;
-  }
-
-  body[data-density="minimal"][data-mini-metric="both"] .bucket__pct,
-  body[data-density="minimal"][data-mini-metric="both"] .bucket__pct--compact {
-    font-size: 9px;
-  }
-}
-
-@media (max-width: 44px) {
-  body[data-density="minimal"] {
-    --window-shadow-pad: 0px;
-  }
-
-  body[data-density="minimal"] .card {
-    border-radius: 4px;
-    padding: 1px 12px 1px 1px;
-  }
-
-  body[data-density="minimal"] #pin {
-    width: 10px;
-    min-width: 10px;
-    height: 14px;
-    font-size: 8px;
-  }
-
-  body[data-density="minimal"] #content {
-    align-items: stretch;
-  }
-
-  body[data-density="minimal"] .provider,
-  body[data-density="minimal"] .provider + .provider {
-    justify-content: center;
-  }
-
-  body[data-density="minimal"] .provider__body {
-    flex: 0 1 auto;
-    text-align: center;
-  }
-
-  body[data-density="minimal"] .bucket__pct,
-  body[data-density="minimal"][data-mini-metric="weekly"] .bucket__pct--compact {
-    font-size: 10px;
-  }
-
-  body[data-density="minimal"][data-mini-metric="both"] .provider__body {
-    display: block;
-  }
-
-  body[data-density="minimal"][data-mini-metric="both"] .bucket--hero,
-  body[data-density="minimal"][data-mini-metric="both"] .bucket--compact {
-    display: inline-flex !important;
-  }
-
-  body[data-density="minimal"][data-mini-metric="both"] .bucket__pct,
-  body[data-density="minimal"][data-mini-metric="both"] .bucket__pct--compact {
-    font-size: 8px;
-  }
-}
-
-body[data-show-resets="true"][data-density="condensed"][data-density-resets="true"] #content {
-  gap: 6px;
-}
-
-body[data-show-resets="true"][data-density="condensed"][data-density-resets="true"] .provider,
-body[data-show-resets="true"][data-density="condensed"][data-density-resets="true"] .provider + .provider {
-  align-items: flex-start;
-}
-
-body[data-show-resets="true"][data-density="condensed"][data-density-resets="true"] .provider__head {
-  padding-top: 1px;
-}
-
-body[data-show-resets="true"][data-density="condensed"][data-density-resets="true"] .provider__body {
-  align-items: flex-start;
-}
-
-body[data-show-resets="true"][data-density="condensed"][data-density-resets="true"] .bucket--hero,
-body[data-show-resets="true"][data-density="condensed"][data-density-resets="true"] .bucket--compact {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-}
-
-body[data-show-resets="true"][data-density="condensed"][data-density-resets="true"] .bucket--hero .bucket__row {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-}
-
-body[data-show-resets="true"][data-density="condensed"][data-density-resets="true"] .bucket__resets,
-body[data-show-resets="true"][data-density="condensed"][data-density-resets="true"] .bucket__resets--compact {
-  display: block !important;
-  flex: 0 0 auto;
-  max-width: 9ch;
-  font-size: 9px;
-  line-height: 1;
-  text-align: left;
-}
-
-body[data-show-resets="true"][data-density="minimal"][data-density-resets="true"] #content {
-  gap: 3px;
-}
-
-body[data-show-resets="true"][data-density="minimal"][data-density-resets="true"] .provider,
-body[data-show-resets="true"][data-density="minimal"][data-density-resets="true"] .provider + .provider {
-  align-items: flex-start;
-}
-
-body[data-show-resets="true"][data-density="minimal"][data-density-resets="true"] .provider__head {
-  padding-top: 1px;
-}
-
-body[data-show-resets="true"][data-density="minimal"][data-density-resets="true"] .provider__body {
-  align-items: flex-start;
-}
-
-body[data-show-resets="true"][data-density="minimal"][data-density-resets="true"] .bucket--hero .bucket__row {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-}
-
-body[data-show-resets="true"][data-density="minimal"][data-density-resets="true"] .bucket--compact {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-}
-
-body[data-show-resets="true"][data-density="minimal"][data-density-resets="true"] .bucket__resets,
-body[data-show-resets="true"][data-density="minimal"][data-density-resets="true"] .bucket__resets--compact {
-  display: block !important;
-  flex: 0 0 auto;
-  max-width: 9ch;
-  font-size: 7px;
-  line-height: 1;
-  text-align: left;
-}
-
-/* ───────── 横並び (1 行 2 列) レイアウト ─────────
-   Claude / Codex を左右 2 列に並べる横長の帯。各列は [見出し] [% + 時間] [週間] を
-   横方向に並べ、フォントは帯向けに小さめにする。密度は JS 側で compact 固定
-   (condensed/minimal の縦積みレイアウトが干渉しないように) にしてあり、ここで
-   帯用のフォント・並びをまとめて指定する。 */
-
-/* #content を横方向 2 列に。中身は縦中央そろえ。 */
-body[data-layout="cols"] #content {
-  display: flex;
-  flex-direction: row !important;
-  align-items: center;
-  gap: 10px;
-  overflow: hidden;
-  padding: 2px 0;
-}
-
-/* 各列: 見出し + 本体を横並び (ベースライン揃え)。区切りは縦罫線。 */
-body[data-layout="cols"] .provider {
-  flex: 1 1 0 !important;
-  min-width: 0;
-  margin: 0 !important;
-  padding: 0 !important;
-  border-top: none !important;
-  display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  gap: 6px;
-}
-body[data-layout="cols"] .provider + .provider {
-  border-left: 1px solid var(--divider) !important;
-  padding-left: 10px !important;
-}
-
-/* 見出し CLAUDE / CODEX は % の左に小さく */
-body[data-layout="cols"] .provider__head {
-  flex: 0 0 auto;
-}
-body[data-layout="cols"] .provider__name {
-  font-size: calc(8.5px * var(--text-scale));
-  max-width: none;
-}
-
-/* 本体: hero (% + 時間) と weekly を横に */
-body[data-layout="cols"] .provider__body {
-  display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-}
-
-/* 帯では "SESSION (5H)" 見出しとバーは省く */
-body[data-layout="cols"] .bucket__title,
-body[data-layout="cols"] .bucket--hero .bar {
-  display: none;
-}
-
-/* hero: % を小さめ (帯用) に、時間はその下 */
-body[data-layout="cols"] .bucket--hero {
-  flex: 0 0 auto;
-  padding: 0;
-}
-body[data-layout="cols"] .bucket__row {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0;
-  margin: 0;
-}
-body[data-layout="cols"] .bucket__pct {
-  font-size: calc(14px * var(--text-scale));
-  line-height: 1.15;
-}
-body[data-layout="cols"] .bucket__resets {
-  font-size: calc(8.5px * var(--text-scale));
-  line-height: 1.1;
-  text-align: left;
-}
-
-/* weekly: hero の右。小さめ。自身のリセット時刻は hero と重複するので隠す。 */
-body[data-layout="cols"] .bucket--compact {
-  flex: 0 1 auto;
-  min-width: 0;
-  padding: 0;
-  border-top: none;
-  font-size: calc(8.5px * var(--text-scale));
-}
-body[data-layout="cols"] .bucket--compact .bucket__resets--compact {
-  display: none;
-}
-
-/* weekly は幅で出し分け: 狭い列では隠して % + 時間を優先。 */
-body[data-layout="cols"][data-cols-weekly="false"] .bucket--compact {
-  display: none !important;
-}
-
-/* アイコン: 右上に横並びのオーバーレイ。普段は隠して文字と重ならないようにし、
-   card を hover / フォーカスしたときだけ出す。 */
-body[data-layout="cols"] .card__header {
-  position: absolute;
-  top: 2px;
-  right: 4px;
-  left: auto;
-  bottom: auto;
-  transform: none;
-  margin: 0;
-  z-index: 3;
-  width: auto;
-  justify-content: flex-end;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.12s ease;
-}
-body[data-layout="cols"] .card:hover .card__header,
-body[data-layout="cols"] .card:focus-within .card__header {
-  opacity: 1;
-  pointer-events: auto;
-}
-/* hover 時にアイコンが乗る背景を敷いて、下の文字と重なっても読めるようにする。 */
-body[data-layout="cols"] .card:hover .header-actions,
-body[data-layout="cols"] .card:focus-within .header-actions {
-  background: var(--bg);
-  border-radius: 6px;
-  padding: 1px 2px;
-}
-body[data-layout="cols"] .header-actions {
-  flex-direction: row;
-  align-items: center;
-  gap: 4px;
-}
-body[data-layout="cols"] .card {
-  padding: 6px 10px;
 }

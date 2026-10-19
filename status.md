@@ -28,7 +28,8 @@
 - **更新通知** (notify only): 起動 30s 後 + 設定間隔 (既定 6h、1〜168h で変更可) ごとに GitHub Releases (`releases/latest`) を確認し、新バージョンがあればポップオーバー上部にバナー表示 → 「開く」で OS ブラウザでリリースページを開く。「×」で閉じた版は再表示しない (新版が出れば再表示)
   - 設定パネルに「更新確認 (n 時間ごと)」と「今すぐ確認」ボタン
   - **テスト方法**: dev ビルドで環境変数 `TOKEN_DISPLAY_FAKE_VERSION=0.0.1` を立てて起動すると、既存の公開リリース (v0.4.2 等) が「更新あり」として扱われ、通知バナー〜リリースページを開くまでの実経路を確認できる (release ビルドでは無視)
-- ナロー幅 (180 px〜) でも weekly 行は 1 行、設定パネル各行も label と入力欄が自動で折り返し
+- 小窓は窓の大きさに合わせ、情報の多い順に並べた表示の候補 (card / line / cols / stack と外す項目の組) を実際に当てて、収まる最初のものを出す。収まらなければ文字を縮める。`npm run test:layout` (ヘッドレスの Edge / Chrome) で 2016 通りの寸法と条件を検査し、消失・見切れ・重なり・窓を広げて情報が減る箇所がないことを確認済み (2026-10-19、Windows の Edge)。Tauri の実機 (WebView2 / macOS の WKWebView) での目視は未確認
+- 設定パネル各行は label と入力欄が自動で折り返し
 - 設定画面の「認証」に Claude Code / Claude Desktop / Codex CLI の検出状態と、トークンに保存されている organization / subscription / tier / account id の非シークレット情報を表示
 
 ## 進行中

@@ -1,0 +1,235 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>layout audit</title>
+<style>body{margin:0}iframe{border:0;display:block}</style>
+</head>
+<body>
+<pre id="out">running</pre>
+<script>
+// 小窓 (src/index.html) を Tauri API の代わりの空関数つきで iframe に読み込み、窓の
+// 大きさ × 条件の格子で、各文字列の消失・見切れ・重なりを測る。
+// run.mjs がヘッドレスの Chromium / Edge で開き、結果 (RESULT_JSON=...) を読む。
+// --allow-file-access-from-files が要る (index.html を XHR で読むため)。
+
+const WIDTHS = [40, 50, 60, 80, 100, 118, 140, 155, 170, 200, 240, 280, 340, 420, 520, 640];
+const HEIGHTS = [40, 48, 55, 70, 84, 100, 120, 140, 180, 210, 260, 320, 420, 520];
+const now = Date.now();
+const iso = (ms) => new Date(now + ms).toISOString();
+
+// 桁数・時刻の長い側に寄せたデータ。
+function usage(opts) {
+  const claude = {
+    kind: "ok",
+    snapshot: {
+      five_hour: { utilization: 1.0, resets_at: iso((4 * 60 + 59) * 60000 + 30000) },
+      seven_day: { utilization: 0.88, resets_at: iso(3 * 86400000) },
+      seven_day_sonnet: { utilization: 0.12, resets_at: iso(3 * 86400000) },
+      fetched_at: new Date(now).toISOString(),
+    },
+  };
+  const codex = opts.codexErr
+    ? { kind: "err", message: "Codex のログイン情報が見つかりません。codex login を実行してください" }
+    : {
+        kind: "ok",
+        snapshot: {
+          five_hour: { utilization: 0.67, resets_at: iso((2 * 60 + 5) * 60000 + 30000) },
+          seven_day: { utilization: 0.4, resets_at: iso(5 * 86400000) },
+          fetched_at: new Date(now).toISOString(),
+        },
+      };
+  return { claude, codex };
+}
+
+const SCENARIOS = [
+  { id: "both", settings: {} },
+  { id: "solo-claude", settings: { showCodex: false } },
+  { id: "solo-codex", settings: { showClaude: false } },
+  { id: "scale1.5", settings: { textScale: 1.5 } },
+  { id: "scale2.0", settings: { textScale: 2.0 } },
+  { id: "scale0.6", settings: { textScale: 0.6 } },
+  { id: "codex-error", settings: {}, codexErr: true },
+  { id: "update-banner", settings: {}, banner: true },
+  { id: "mini-weekly", settings: { miniMetric: "weekly" } },
+];
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const STUB = `<script>
+window.__L = {};
+window.__TAURI__ = {
+  core: { invoke: async (cmd) => (cmd === "get_popover_pinned" ? false : null) },
+  event: { listen: async (name, cb) => { window.__L[name] = cb; } },
+  window: { getCurrentWindow: () => ({ setResizable: async () => {}, startDragging: async () => {}, startResizeDragging: async () => {} }) },
+};
+<\/script>`;
+
+function loadIndexHtml() {
+  const url = new URL("../../src/index.html", location.href).href;
+  const xhr = new XMLHttpRequest();
+  xhr.open("GET", url, false);
+  xhr.send();
+  const base = `<base href="${new URL("../../src/", location.href).href}">`;
+  return xhr.responseText.replace("<head>", "<head>" + base + STUB);
+}
+
+// 測る文字列 (データ項目)。名前は短縮も 1 項目として数える。
+function items(d) {
+  const out = [];
+  for (const p of ["claude", "codex"]) {
+    const sec = d.querySelector(`.provider[data-provider="${p}"]`);
+    const q = (s) => sec.querySelector(s);
+    out.push([p + ".name", q(".provider__name"), "name"]);
+    out.push([p + ".5h", q('[data-bucket="five_hour"] .bucket__pct'), "data"]);
+    out.push([p + ".5hReset", q('[data-bucket="five_hour"] [data-resets]'), "data"]);
+    out.push([p + ".weekly", q(".bucket__pct--weekly"), "data"]);
+    if (p === "claude") out.push([p + ".sonnet", q("[data-sonnet-wrap]"), "data"]);
+    out.push([p + ".wReset", q('[data-bucket="weekly"] [data-resets]'), "data"]);
+    out.push([p + ".error", q("[data-error]"), "error"]);
+  }
+  out.push(["footer", d.querySelector("#updated-at"), "deco"]);
+  out.push(["banner", d.querySelector(".update-banner__text"), "deco"]);
+  return out;
+}
+
+function shown(w, el) {
+  if (!el || !el.getClientRects().length) return false;
+  for (let e = el; e && e.nodeType === 1; e = e.parentElement) {
+    const cs = w.getComputedStyle(e);
+    if (cs.visibility === "hidden" || parseFloat(cs.opacity) === 0) return false;
+  }
+  return true;
+}
+
+// 文字列の占める範囲。Range の矩形はフォントの上下の余白 (content area) を含み、行の高さを
+// 1.1 などに詰めた行では上下の行と数 px 重なって見えるので、各テキストの行の高さ
+// (line-height) まで上下を詰めた「行の箱」で比べる。数字と英字の字形はこの中に収まる。
+function textRects(w, d, el) {
+  const out = [];
+  const walker = d.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (!n.textContent.trim()) continue;
+    const lh = parseFloat(w.getComputedStyle(n.parentElement).lineHeight);
+    const r = d.createRange();
+    r.selectNodeContents(n);
+    for (const x of r.getClientRects()) {
+      if (!(x.width > 0 && x.height > 0)) continue;
+      const inset = Number.isFinite(lh) && x.height > lh ? (x.height - lh) / 2 : 0;
+      out.push({
+        left: x.left, right: x.right, width: x.width,
+        top: x.top + inset, bottom: x.bottom - inset, height: x.height - 2 * inset,
+      });
+    }
+  }
+  return out;
+}
+
+function clipRect(w, el) {
+  const c = { l: 0, t: 0, r: w.innerWidth, b: w.innerHeight };
+  for (let e = el.parentElement; e && e.nodeType === 1; e = e.parentElement) {
+    const cs = w.getComputedStyle(e);
+    if (cs.overflowX !== "visible" || cs.overflowY !== "visible") {
+      const b = e.getBoundingClientRect();
+      if (cs.overflowX !== "visible") { c.l = Math.max(c.l, b.left); c.r = Math.min(c.r, b.right); }
+      if (cs.overflowY !== "visible") { c.t = Math.max(c.t, b.top); c.b = Math.min(c.b, b.bottom); }
+    }
+  }
+  return c;
+}
+
+function measure(f) {
+  const d = f.contentDocument;
+  const w = f.contentWindow;
+  const ds = d.body.dataset;
+  const res = {
+    view: ["form", "names", "sonnet", "resets", "metric", "icons", "footer", "titles", "bar"].map((k) => ds[k]).join(" "),
+    form: ds.form,
+    fit: parseFloat(d.documentElement.style.getPropertyValue("--fit-scale") || "1"),
+    content: (() => {
+      const c = d.getElementById("content");
+      return [c.clientWidth, c.scrollWidth, c.clientHeight, c.scrollHeight].join(",");
+    })(),
+    shown: [], gone: [], cut: [], overlap: [],
+  };
+  const boxes = [];
+  for (const [name, el, kind] of items(d)) {
+    if (!shown(w, el)) continue;
+    // エラー文は小さい形で省略記号つきに切る設計なので、要素の箱だけを見る。
+    const rs = kind === "error" ? [el.getBoundingClientRect()] : textRects(w, d, el);
+    if (!rs.length) continue;
+    res.shown.push(name);
+    const c = clipRect(w, el);
+    let vis = 0, hcut = 0, vcut = 0;
+    for (const r of rs) {
+      const iw = Math.max(0, Math.min(r.right, c.r) - Math.max(r.left, c.l));
+      const ih = Math.max(0, Math.min(r.bottom, c.b) - Math.max(r.top, c.t));
+      vis += iw * ih;
+      hcut = Math.max(hcut, r.width - iw);
+      vcut = Math.max(vcut, r.height - ih);
+    }
+    if (vis <= 0.5) res.gone.push(name);
+    else if (hcut > 1.5 || vcut > 1.5) res.cut.push(name);
+    for (const r of rs) boxes.push([name, r]);
+  }
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      const [na, a] = boxes[i];
+      const [nb, b] = boxes[j];
+      if (na === nb) continue;
+      const iw = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+      const ih = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+      if (iw > 1 && ih > 1) {
+        const key = na + "/" + nb;
+        if (!res.overlap.includes(key)) res.overlap.push(key);
+      }
+    }
+  }
+  return res;
+}
+
+async function runScenario(sc, html) {
+  const f = document.createElement("iframe");
+  f.style.width = "340px";
+  f.style.height = "420px";
+  document.body.appendChild(f);
+  await new Promise((r) => { f.onload = r; f.srcdoc = html; });
+  await sleep(300);
+  const w = f.contentWindow;
+  const st = f.contentDocument.createElement("style");
+  st.textContent = "*{transition:none!important}";
+  f.contentDocument.head.appendChild(st);
+  w.__L["usage-updated"]({ payload: usage(sc) });
+  if (Object.keys(sc.settings).length) w.__L["settings-changed"]({ payload: sc.settings });
+  if (sc.banner) w.__L["update-available"]({ payload: { available: true, latest: "9.9.9" } });
+  await sleep(50);
+  const rows = [];
+  for (const H of HEIGHTS) {
+    for (const W of WIDTHS) {
+      f.style.width = W + "px";
+      f.style.height = H + "px";
+      void f.offsetWidth;
+      w.chooseView();
+      rows.push({ W, H, ...measure(f) });
+    }
+  }
+  f.remove();
+  return rows;
+}
+
+(async () => {
+  const html = loadIndexHtml();
+  const all = {};
+  // audit.html#only=<条件の id> で 1 条件だけ測る (調べもの用)。
+  const only = new URLSearchParams(location.hash.slice(1)).get("only");
+  for (const sc of SCENARIOS) {
+    if (only && sc.id !== only) continue;
+    all[sc.id] = await runScenario(sc, html);
+  }
+  document.getElementById("out").textContent = "RESULT_JSON=" + JSON.stringify(all);
+})().catch((e) => {
+  document.getElementById("out").textContent = "ERROR=" + (e && e.stack ? e.stack : e);
+});
+</script>
+</body>
+</html>
