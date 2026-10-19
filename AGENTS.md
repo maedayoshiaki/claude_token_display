@@ -163,6 +163,13 @@ npm run tauri build
 
 # Rust 単体テスト
 cd src-tauri && cargo test
+
+# 小窓のレイアウト検査 (Edge / Chrome / Chromium をヘッドレスで使う。npm install 不要)
+# 窓の大きさ 16×14 通り × 条件 9 通りで、文字の消失・見切れ・重なりと、窓を広げて情報が
+# 減らないかを確かめる。問題があれば終了コード 1。--grid で各寸法の選ばれた形も出す。
+npm run test:layout
+npm run test:layout -- --grid
+# ブラウザが見つからないときは BROWSER_PATH にパスを入れる
 ```
 
 ## Git / GitHub
@@ -180,3 +187,7 @@ push 先: `https://github.com/OWNER/REPO.git`
 - **frontend をバンドラレス**にした理由: 単一 HTML/JS で十分。Vite を入れると tauri dev の起動が重くなる。`withGlobalTauri: true` で `window.__TAURI__` 経由で API を叩く。
 - **ポーリング 5分**: バケットは時間単位で動くので 30秒では細かすぎる。手動 refresh ボタンも用意。
 - **トレイ title 表記**: macOS は `set_title` がメニューバーに反映される。Windows のシステムトレイは title 非対応のため、同じ文字列を tooltip にもセット。
+- **小窓の表示は「候補を当てて収まるものを選ぶ」** (`main.js` の `chooseView`): 以前は窓の幅・高さを固定の閾値 (幅 280/155/118、高さ 210/84/54) で区切り、CSS の `@media` も別に効いていたため、文字サイズ・プロバイダの数・エラー文・更新バナーなどの組み合わせで文字が消えたり切れたり重なったりしていた (v0.9.3 で 224 寸法中 65〜89 寸法で % がまるごと消えていた)。今は情報の多い順に並べた候補 (`buildViewCandidates`) を上から当て、`#content` があふれない最初の候補を採る。候補は body の data 属性 (`data-form` = card / line / cols / stack と、外す項目) で表し、CSS は `styles.css` の「小窓」の節にまとめてある。
+  - 外す順: card のフッタ → アイコン行 (hover で重ねる形に) → 見出し → バー → (小さい形で) 名前の短縮 (C/X) → Sonnet → 週間のリセット時刻 → 5h のリセット時刻 → 片方の % (設定「極小ウィンドウ」が週間なら週間を残す) → 名前。どれも収まらなければ文字を縮める (`--fit-scale`、下限は文字サイズ 1.0 の 0.35 倍相当)。
+  - 実測で判定するので、`#content` の中では `overflow: hidden` で切らない・flex アイテムを中身より縮めない (エラー文の省略だけ例外)。中央寄せは、あふれが上側へ出ない空き要素 (`#content::before/::after`) で行う。新しい要素を足すときもこの約束を守り、`npm run test:layout` で確かめる。
+  - 文字の大きさは rem (1rem = 13px × 文字サイズ × 縮小率) で書く。

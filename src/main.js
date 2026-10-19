@@ -26,30 +26,12 @@ const UPDATE_NOTIFY_KEY = "token_display_update_notify";
 const TEXT_SCALE_MIN = 0.6;
 const TEXT_SCALE_MAX = 2.0;
 const TEXT_SCALE_STEP = 0.05;
-// compact = 「中モード」(バー/フッタは省くが %・週間・リセット時刻は見える)。
-// full に切り替わる上限 (COMPACT_*_MAX) を広めに、condensed に落ちる下限
-// (CONDENSED_*_MAX) を低めに取り、compact が効く範囲を広げている。
-const COMPACT_WIDTH_MAX = 280;
-const COMPACT_HEIGHT_MAX = 210;
-const CONDENSED_WIDTH_MAX = 155;
-const CONDENSED_HEIGHT_MAX = 84;
-const MINIMAL_WIDTH_MAX = 118;
-const MINIMAL_HEIGHT_MAX = 54;
-const CONDENSED_RESETS_HEIGHT_MIN = 88;
-// 極小モードでリセット時刻 (%の下) を出す最小の高さ。プロバイダを 1 つだけ表示している
-// ときは行が半分で済むので、より低い高さから時刻を出せる。
-const MINIMAL_RESETS_HEIGHT_MIN = 58;
-const MINIMAL_RESETS_HEIGHT_MIN_SOLO = 34;
-// 小モードで weekly 併記時、この幅以下なら見出しを縦積みにして横幅を節約する
-// (これ以上あれば見出しは横に置いて縦を詰める)。
-const MIN_NARROW_WIDTH_MAX = 144;
-// 横並び (1 行 2 列) に切り替える条件。ウィンドウが「横長で、縦に 2 つ積むには低い」
-// ときに Claude / Codex を左右に並べる。両方表示中のときだけ有効。
-const TWO_COL_MIN_WIDTH = 170;
-const TWO_COL_MAX_HEIGHT = 200;
-// 横並びでは weekly を hero (%+時間) の右に横並びにする。列がこの幅以上あるときだけ
-// weekly を出す (幅で判定)。狭いときは hero だけにして % と時間を優先表示する。
-const TWO_COL_WEEKLY_MIN_WIDTH = 330;
+// どの表示候補も収まらないとき、文字をここまで縮めてよい。文字サイズ設定 1.0 に対する
+// 比で、実際の縮小率の下限は FIT_SCALE_MIN / 文字サイズ (設定を大きくしていても同じ
+// 大きさまで縮められる)。
+const FIT_SCALE_MIN = 0.35;
+// 表示の候補を表す body の data 属性 (styles.css の「小窓」の節を参照)。
+const VIEW_KEYS = ["form", "icons", "footer", "titles", "bar", "names", "sonnet", "resets", "metric"];
 const POPOVER_WIDTH_MIN = 1;
 const POPOVER_WIDTH_MAX = 640;
 const POPOVER_WIDTH_STEP = 24;
@@ -79,11 +61,9 @@ let theme = "auto";
 let updateNotify = true; // アプリ更新通知 (バナー/マーク) の有効/無効
 let lastAllUsage = null; // 最後に描画した payload (トグル反映の再描画に使う)
 let latestUpdateInfo = null; // 直近の更新情報 (バナー / マーク / data-update-available の単一ソース)
-let currentDensity = "";
-let currentDensityResets = "";
-let currentLayout = "";
-let currentMinNarrow = "";
-let currentColsWeekly = "";
+let currentView = null; // chooseView が採った候補
+let currentFitScale = 1;
+let fitScheduled = false;
 
 function levelOf(util) {
   if (util < 0.5) return "low";
@@ -203,9 +183,7 @@ function renderProvider(providerKey, result) {
   renderHeroBucket(heroSection, snapshot.five_hour);
 
   if (providerKey === "claude") {
-    const weeklySection = section.querySelector(
-      '[data-bucket="weekly-combined"]'
-    );
+    const weeklySection = section.querySelector('[data-bucket="weekly"]');
     renderClaudeWeekly(weeklySection, snapshot.seven_day, snapshot.seven_day_sonnet);
   } else {
     const weeklySection = section.querySelector('[data-bucket="weekly"]');
@@ -225,119 +203,158 @@ function render(all) {
     .map((s) => new Date(s));
   const latest = dates.length ? new Date(Math.max(...dates)) : new Date();
   $("#updated-at").textContent = "updated " + latest.toLocaleTimeString();
+  // 文字列の長さ (桁数・時刻・エラー文) が変わると収まり方も変わるので選び直す。
+  chooseView();
 }
 
 function rerender() {
   if (lastAllUsage) render(lastAllUsage);
 }
 
-function densityForSize(width, height) {
-  // 最小(最コンパクト)と中間を「交換」してある: 一番小さいレンジは inline で最コンパクトな
-  // condensed 表示、その一段上は % + 時間が見える minimal 表示。これで小さくなるほど素朴に
-  // なり (フォントも小さく)、中間モードで時間が見える。
-  if (width <= MINIMAL_WIDTH_MAX || height <= MINIMAL_HEIGHT_MAX) {
-    return "condensed";
+// ───────── 表示の選び方 ─────────
+// 窓の大きさを固定の閾値で区切るのではなく、情報の多い順に並べた「表示の候補」を
+// 実際に当て、あふれない最初の候補を採る。文字サイズ・表示中のプロバイダ・エラー文・
+// 更新バナー・桁数などはすべて実測に含まれるので、条件ごとの閾値は要らない。
+// 候補は情報の多い順なので、窓を広げて情報が減ることはない。
+
+// 候補の一覧。前半は card (大きい窓) で飾りを 1 つずつ外し、後半は小さい形
+// (line / cols / stack) で情報を優先度の低い順に減らす。減らす順は
+// 名前の短縮 → Sonnet → 週間のリセット時刻 → 5h のリセット時刻 → 片方の % → 名前。
+function buildViewCandidates() {
+  const both = showClaude && showCodex;
+  // % を 1 つに絞る段階で残す方。設定「極小ウィンドウ」が週間なら週間を残す。
+  const single = miniMetric === "weekly" && showWeekly ? "weekly" : "5h";
+  // 1 つだけ表示しているときは名前がなくても区別できるので、短縮せずに外す。
+  const shortName = both ? "short" : "none";
+  const all = { names: "full", sonnet: "1", resets: "both", metric: "both" };
+  const cands = [];
+  const cardDecor = [
+    { icons: "row", footer: "1", titles: "1", bar: "1" },
+    { icons: "row", footer: "0", titles: "1", bar: "1" },
+    { icons: "overlay", footer: "0", titles: "1", bar: "1" },
+    { icons: "overlay", footer: "0", titles: "0", bar: "1" },
+    { icons: "overlay", footer: "0", titles: "0", bar: "0" },
+  ];
+  for (const decor of cardDecor) cands.push({ form: "card", ...decor, ...all });
+
+  const levels = [
+    all,
+    { ...all, names: shortName },
+    { names: shortName, sonnet: "0", resets: "both", metric: "both" },
+    { names: shortName, sonnet: "0", resets: "5h", metric: "both" },
+    { names: shortName, sonnet: "0", resets: "none", metric: "both" },
+    { names: shortName, sonnet: "0", resets: "none", metric: single },
+    { names: "none", sonnet: "0", resets: "none", metric: single },
+  ];
+  // line を先に試す。横長で低い窓は line が高さであふれて cols に、細く高い窓は
+  // line と cols が幅であふれて stack に落ちる。cols は 2 つ表示しているときだけ。
+  const forms = both ? ["line", "cols", "stack"] : ["line", "stack"];
+  const seen = new Set();
+  for (const level of levels) {
+    for (const form of forms) {
+      const cand = { form, icons: "overlay", footer: "0", titles: "0", bar: "0", ...level };
+      const key = VIEW_KEYS.map((k) => cand[k]).join("|");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      cands.push(cand);
+    }
   }
-  if (width <= CONDENSED_WIDTH_MAX || height <= CONDENSED_HEIGHT_MAX) {
-    return "minimal";
-  }
-  if (width <= COMPACT_WIDTH_MAX || height <= COMPACT_HEIGHT_MAX) {
-    return "compact";
-  }
-  return "full";
+  return cands;
 }
 
-// ちょうど 1 つのプロバイダだけ表示しているか (もう片方は非表示)。
-function isSoloProvider() {
-  return showClaude !== showCodex;
+function applyView(view, fitScale) {
+  const ds = document.body.dataset;
+  for (const k of VIEW_KEYS) ds[k] = view[k];
+  document.documentElement.style.setProperty("--fit-scale", String(fitScale));
 }
 
-function densityResetsForSize(density, height) {
-  if (density === "minimal") {
-    const min = isSoloProvider()
-      ? MINIMAL_RESETS_HEIGHT_MIN_SOLO
-      : MINIMAL_RESETS_HEIGHT_MIN;
-    return height >= min;
-  }
-  if (density === "condensed") {
-    return height >= CONDENSED_RESETS_HEIGHT_MIN;
-  }
-  return false;
-}
-
-// 小モードで実際に body に反映する mini-metric。既定 (5h のみ) でも weekly を併記する
-// "both" 表示にする (片方でも両方でも weekly を出す)。見出しは狭いとき縦積みになるので
-// 両方表示でも収まる。ユーザーが明示的に weekly / both を選んでいる場合はその設定を尊重する。
-function effectiveMiniMetric() {
-  if (miniMetric === "five_hour") return "both";
-  return miniMetric;
-}
-
-function applyMiniMetric() {
-  document.body.dataset.miniMetric = effectiveMiniMetric();
-}
-
-// 横並び (cols) か縦積み (rows) か。両方のプロバイダを表示していて、かつウィンドウが
-// 横長で低い (縦に積むとき窮屈になる) ときだけ左右 2 列にする。1 つしか表示していない
-// ときは 2 列にする意味がないので rows のまま。各列の中身の密度は従来どおり
-// densityForSize が面積 (全高) から決めるので、狭く / 低くなれば列ごとに condensed →
-// minimal と自然に縮む。
-function layoutForSize(width, height) {
+// 今の表示が窓に収まっているか。#content の中身のはみ出しは scrollWidth / scrollHeight に
+// 出る (styles.css 側で、#content の中では切らず・縮めない作りにしてある)。行として置いた
+// 更新バナー・アイコン行・フッタは、カードの内側に収まっているかを位置で確かめる。
+function viewFits() {
+  const content = $("#content");
   if (
-    showClaude &&
-    showCodex &&
-    width >= TWO_COL_MIN_WIDTH &&
-    height <= TWO_COL_MAX_HEIGHT
+    content.scrollWidth > content.clientWidth + 1 ||
+    content.scrollHeight > content.clientHeight + 1
   ) {
-    return "cols";
+    return false;
   }
-  return "rows";
+  const card = $(".card");
+  const cs = getComputedStyle(card);
+  const cardRect = card.getBoundingClientRect();
+  const left = cardRect.left + parseFloat(cs.paddingLeft) - 1;
+  const right = cardRect.right - parseFloat(cs.paddingRight) + 1;
+  const bottom = cardRect.bottom - parseFloat(cs.paddingBottom) + 1;
+  for (const el of [$("#update-banner"), $(".card__header"), $(".card__footer")]) {
+    if (!el) continue;
+    const style = getComputedStyle(el);
+    if (style.display === "none" || style.position === "absolute") continue;
+    const r = el.getBoundingClientRect();
+    if (r.bottom > bottom || r.right > right) return false;
+    if (el.scrollWidth > el.clientWidth + 1) return false;
+    // アイコン行は右寄せなので、はみ出しは左側に出る。
+    for (const child of el.children) {
+      const cr = child.getBoundingClientRect();
+      if (cr.width > 0 && cr.left < left) return false;
+    }
+  }
+  return true;
 }
 
-function updateDensity() {
-  const w = window.innerWidth;
-  const h = window.innerHeight;
-  const layout = layoutForSize(w, h);
-  let density = densityForSize(w, h);
-  // 横並びは横方向レイアウトなので、高さが低くても condensed/minimal に落とさず compact
-  // 固定にする。これで condensed の「リセット時刻を隠す」が効かず、時間が確実に出る。
-  if (layout === "cols") density = "compact";
-  // 片方だけ表示 (solo) のときは 1 プロバイダで情報も少ないので、最小レンジ (condensed)
-  // だけ中間モード (minimal = %+週間+時刻のコンパクト表示) に上げる。compact はそのまま
-  // compact を出す。こうしないと幅を少し狭めた (compact 入りした) だけで一気に最小表示へ
-  // 落ちてしまう。full 相当まで広げれば full を出す。
-  if (isSoloProvider() && density === "condensed") {
-    density = "minimal";
+// 最も小さい候補でも収まらないとき、line と stack のうち縮小率を大きく取れる方で、
+// 文字を縮めて収める。下限まで縮めても収まらなければ、その大きさで出す。
+function fitByShrinking(view) {
+  const minScale = Math.min(1, FIT_SCALE_MIN / textScale);
+  let best = null;
+  for (const form of ["line", "stack"]) {
+    const cand = { ...view, form };
+    applyView(cand, minScale);
+    if (!viewFits()) {
+      if (!best) best = { view: cand, scale: minScale, fits: false };
+      continue;
+    }
+    let lo = minScale;
+    let hi = 1;
+    for (let i = 0; i < 7; i++) {
+      const mid = (lo + hi) / 2;
+      applyView(cand, mid);
+      if (viewFits()) lo = mid;
+      else hi = mid;
+    }
+    if (!best || !best.fits || lo > best.scale) best = { view: cand, scale: lo, fits: true };
   }
-  const densityResets = String(densityResetsForSize(density, h));
-  // 横並びでは weekly を hero の右に横並びにするので、幅で出し分ける (それ以外は "true")。
-  const colsWeekly =
-    layout === "cols" ? String(w >= TWO_COL_WEEKLY_MIN_WIDTH) : "true";
-  // 小モード (中間=minimal / 最小=condensed) で幅が狭いか。weekly 併記時の見出し縦積み判定用。
-  const minNarrow = String(
-    (density === "minimal" || density === "condensed") &&
-      w <= MIN_NARROW_WIDTH_MAX
-  );
-  if (density !== currentDensity) {
-    currentDensity = density;
-    document.body.dataset.density = density;
+  return best;
+}
+
+function chooseView() {
+  const cands = buildViewCandidates();
+  let chosen = null;
+  let scale = 1;
+  for (const cand of cands) {
+    applyView(cand, 1);
+    if (viewFits()) {
+      chosen = cand;
+      break;
+    }
   }
-  if (minNarrow !== currentMinNarrow) {
-    currentMinNarrow = minNarrow;
-    document.body.dataset.minNarrow = minNarrow;
+  if (!chosen) {
+    const shrunk = fitByShrinking(cands[cands.length - 1]);
+    chosen = shrunk.view;
+    scale = Math.floor(shrunk.scale * 1000) / 1000;
   }
-  if (densityResets !== currentDensityResets) {
-    currentDensityResets = densityResets;
-    document.body.dataset.densityResets = densityResets;
-  }
-  if (layout !== currentLayout) {
-    currentLayout = layout;
-    document.body.dataset.layout = layout;
-  }
-  if (colsWeekly !== currentColsWeekly) {
-    currentColsWeekly = colsWeekly;
-    document.body.dataset.colsWeekly = colsWeekly;
-  }
+  applyView(chosen, scale);
+  currentView = chosen;
+  currentFitScale = scale;
+}
+
+// リサイズ中は 1 フレームに 1 回だけ選び直す。
+function scheduleChooseView() {
+  if (fitScheduled) return;
+  fitScheduled = true;
+  requestAnimationFrame(() => {
+    fitScheduled = false;
+    chooseView();
+  });
 }
 
 function renderPinned(pinned) {
@@ -363,14 +380,6 @@ function renderTextScale(scale) {
     "--text-scale",
     textScale.toFixed(2)
   );
-  const smaller = $("#font-smaller");
-  const larger = $("#font-larger");
-  if (smaller) smaller.disabled = textScale <= TEXT_SCALE_MIN + 1e-6;
-  if (larger) larger.disabled = textScale >= TEXT_SCALE_MAX - 1e-6;
-  const input = $("#scale-input");
-  if (input && document.activeElement !== input) {
-    input.value = textScale.toFixed(2);
-  }
 }
 
 function initTextScale() {
@@ -508,7 +517,7 @@ async function setPopoverWidth(width) {
     );
     const result = await invoke("set_popover_width", { width: clampedWidth });
     console.debug("popover width", result);
-    updateDensity();
+    chooseView();
   } catch (err) {
     console.error(err);
   }
@@ -540,11 +549,8 @@ function handleWidthShortcut(event) {
 }
 
 function recoverWidthFromMinimal(event) {
-  // 小さい2モード (最小=condensed / 中間=minimal) から幅リセットで抜けられるように。
-  if (
-    (currentDensity !== "minimal" && currentDensity !== "condensed") ||
-    isInteractiveTarget(event.target)
-  ) {
+  // 小さい形 (card 以外) からダブルクリックの幅リセットで抜けられるように。
+  if (!currentView || currentView.form === "card" || isInteractiveTarget(event.target)) {
     return;
   }
   setPopoverWidth(POPOVER_WIDTH_DEFAULT);
@@ -602,10 +608,6 @@ function applyViewSettings(s) {
   if (s.textScale != null && Number.isFinite(Number(s.textScale))) {
     renderTextScale(Number(s.textScale));
   }
-  // Claude / Codex の表示切り替えは横並び成立条件 (両方表示) と極小の mini-metric
-  // (1つ表示なら weekly 併記) に影響するので再判定する。
-  updateDensity();
-  applyMiniMetric();
   rerender();
   // 更新通知の状態変化をバナー/マークに反映する。
   if (!updateNotify) {
@@ -614,6 +616,8 @@ function applyViewSettings(s) {
   }
   syncUpdateIndicators();
   if (updateNotify && latestUpdateInfo) showUpdateBanner(latestUpdateInfo);
+  // 表示設定・文字サイズ・バナーの変化はすべて収まり方に効くので選び直す。
+  chooseView();
 }
 
 async function initSettings() {
@@ -639,17 +643,13 @@ async function initSettings() {
   document.body.dataset.showCodex = String(showCodex);
   document.body.dataset.showWeekly = String(showWeekly);
   document.body.dataset.showResets = String(showResets);
-  // 読み込んだ表示状態で横並び / 縦積みを再判定 (初期の updateDensity は既定値で走るため)。
-  updateDensity();
+  // 読み込んだ表示状態で表示を選び直す (起動直後の chooseView は既定値で走るため)。
+  chooseView();
 
   // 小さいモード設定
   try { trayMetric = localStorage.getItem(TRAY_METRIC_KEY) || backendSettings?.tray_metric || "five_hour"; } catch {}
   try { miniMetric = localStorage.getItem(MINI_METRIC_KEY) || "five_hour"; } catch {}
-  const traySelEl = $("#tray-metric-select");
-  if (traySelEl) traySelEl.value = trayMetric;
-  const miniSelEl = $("#mini-metric-select");
-  if (miniSelEl) miniSelEl.value = miniMetric;
-  applyMiniMetric();
+  chooseView();
   // バックエンドに tray metric を反映
   if (!backendSettings || backendSettings.tray_metric !== trayMetric) {
     invoke("set_tray_metric", { metric: trayMetric }).catch(() => {});
@@ -697,8 +697,6 @@ async function initSettings() {
     (backendSettings?.update_check_interval_secs
       ? clampUpdateIntervalHours(backendSettings.update_check_interval_secs / 3600)
       : DEFAULT_UPDATE_INTERVAL_HOURS);
-  const updateIntervalInput = $("#update-interval-input");
-  if (updateIntervalInput) updateIntervalInput.value = updateIntervalHours;
 
   if (
     !backendSettings ||
@@ -724,7 +722,7 @@ $(".card").addEventListener("mousedown", startPinnedDrag);
 $(".card").addEventListener("dblclick", recoverWidthFromMinimal);
 $("#resize-handle").addEventListener("mousedown", startResize);
 window.addEventListener("keydown", handleWidthShortcut);
-window.addEventListener("resize", updateDensity);
+window.addEventListener("resize", scheduleChooseView);
 
 // ───────── 更新通知 ─────────
 function dismissedUpdateVersion() {
@@ -767,6 +765,7 @@ function showUpdateBanner(info, force = false) {
   if (!banner || !versionEl) return;
   versionEl.textContent = "v" + info.latest;
   banner.hidden = false;
+  chooseView();
 }
 
 function dismissUpdateBanner() {
@@ -785,6 +784,7 @@ function dismissUpdateBanner() {
   }
   // dismiss を反映してマーク / データセットも消す。
   syncUpdateIndicators();
+  chooseView();
 }
 
 async function openReleasePage() {
@@ -899,10 +899,12 @@ listen("settings-changed", (event) => {
 });
 
 // 初期ロード時に API を叩かない（backend のポーラから event が来るのを待つ）。
-updateDensity();
 document.body.dataset.updateAvailable = "false";
 applyTheme(loadStoredTheme());
 initTextScale();
+chooseView();
+// フォントの読み込みで文字幅が変わることがあるので、読み込み後にも選び直す。
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(chooseView);
 initPinned();
 initSettings();
 initUpdateCheck();

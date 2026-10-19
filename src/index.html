@@ -26,23 +26,21 @@
       <div id="content">
         <section class="provider" data-provider="claude">
           <div class="provider__head">
-            <span class="provider__name">CLAUDE</span>
+            <span class="provider__name"><span class="name-full">CLAUDE</span><span class="name-short">C</span></span>
           </div>
           <div class="provider__body" data-body>
             <section class="bucket bucket--hero" data-bucket="five_hour">
               <div class="bucket__title">Session (5h)</div>
               <div class="bucket__row">
-                <div class="bucket__pct" data-pct>—</div>
-                <div class="bucket__resets" data-resets>—</div>
+                <span class="bucket__pct"><span class="metric-label">5h</span><span data-pct>—</span></span>
+                <span class="bucket__resets" data-resets>—</span>
               </div>
               <div class="bar"><div class="bar__fill" data-fill></div></div>
             </section>
-            <section class="bucket bucket--compact" data-bucket="weekly-combined">
+            <section class="bucket bucket--weekly" data-bucket="weekly">
               <span class="bucket__name">Weekly</span>
-              <span class="bucket__pcts">
-                <span class="bucket__pct bucket__pct--compact" data-pct-weekly>—%</span><span class="bucket__sonnet" data-sonnet-wrap> · Sonnet <span data-pct-sonnet>—%</span></span>
-              </span>
-              <span class="bucket__resets bucket__resets--compact" data-resets>—</span>
+              <span class="bucket__line"><span class="bucket__pct bucket__pct--weekly"><span class="metric-label">w</span><span data-pct-weekly>—%</span></span><span class="bucket__sonnet" data-sonnet-wrap><span class="lbl-long">· Sonnet </span><span class="lbl-short">S</span><span data-pct-sonnet>—%</span></span></span>
+              <span class="bucket__resets" data-resets>—</span>
             </section>
           </div>
           <div class="provider__error" data-error hidden></div>
@@ -50,21 +48,21 @@
 
         <section class="provider" data-provider="codex">
           <div class="provider__head">
-            <span class="provider__name">CODEX</span>
+            <span class="provider__name"><span class="name-full">CODEX</span><span class="name-short">X</span></span>
           </div>
           <div class="provider__body" data-body>
             <section class="bucket bucket--hero" data-bucket="five_hour">
               <div class="bucket__title">Session (5h)</div>
               <div class="bucket__row">
-                <div class="bucket__pct" data-pct>—</div>
-                <div class="bucket__resets" data-resets>—</div>
+                <span class="bucket__pct"><span class="metric-label">5h</span><span data-pct>—</span></span>
+                <span class="bucket__resets" data-resets>—</span>
               </div>
               <div class="bar"><div class="bar__fill" data-fill></div></div>
             </section>
-            <section class="bucket bucket--compact" data-bucket="weekly">
+            <section class="bucket bucket--weekly" data-bucket="weekly">
               <span class="bucket__name">Weekly</span>
-              <span class="bucket__pct bucket__pct--compact" data-pct-weekly>—%</span>
-              <span class="bucket__resets bucket__resets--compact" data-resets>—</span>
+              <span class="bucket__line"><span class="bucket__pct bucket__pct--weekly"><span class="metric-label">w</span><span data-pct-weekly>—%</span></span></span>
+              <span class="bucket__resets" data-resets>—</span>
             </section>
           </div>
           <div class="provider__error" data-error hidden></div>
