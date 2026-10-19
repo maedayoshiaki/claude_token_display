@@ -2,6 +2,8 @@
 // "settings-changed" イベントで popover に反映する (popover はイベント payload を見て即適用)。
 const { invoke } = window.__TAURI__.core;
 const { emit } = window.__TAURI__.event;
+const currentWindow = window.__TAURI__.window.getCurrentWindow();
+const autostartApi = window.__TAURI__.autostart || null;
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -21,6 +23,7 @@ const TRAY_CODEX_KEY = "token_display_tray_codex";
 const UPDATE_INTERVAL_HOURS_KEY = "token_display_update_interval_hours";
 const THEME_KEY = "token_display_theme";
 const UPDATE_NOTIFY_KEY = "token_display_update_notify";
+const AUTOSTART_PROMPT_KEY = "token_display_autostart_prompted";
 
 const TEXT_SCALE_MIN = 0.6;
 const TEXT_SCALE_MAX = 2.0;
@@ -42,6 +45,7 @@ let intervalMin = DEFAULT_INTERVAL_MIN;
 let updateIntervalHours = DEFAULT_UPDATE_INTERVAL_HOURS;
 let theme = "auto";
 let updateNotify = true;
+let autostartEnabled = false;
 let showSonnet = true;
 let showBar = true;
 let showClaude = true;
@@ -192,11 +196,107 @@ function renderControls() {
   $("#interval-input").value = intervalMin;
   $("#update-interval-input").value = updateIntervalHours;
   $("#update-notify-toggle").checked = updateNotify;
+  $("#autostart-toggle").checked = autostartEnabled;
+  $("#autostart-status").textContent = autostartEnabled ? "有効" : "無効";
   $("#tray-metric-select").value = trayMetric;
   $("#mini-metric-select").value = miniMetric;
   $("#tray-claude-toggle").checked = trayShowClaude;
   $("#tray-codex-toggle").checked = trayShowCodex;
   refreshScaleButtons();
+}
+
+async function loadAutostart() {
+  if (!autostartApi?.isEnabled) return;
+  try {
+    autostartEnabled = await autostartApi.isEnabled();
+    const toggle = $("#autostart-toggle");
+    const status = $("#autostart-status");
+    if (toggle) toggle.checked = autostartEnabled;
+    if (status) {
+      status.textContent = autostartEnabled ? "有効" : "無効";
+      status.title = "";
+    }
+  } catch (err) {
+    console.error(err);
+    const status = $("#autostart-status");
+    if (status) {
+      status.textContent = "確認できません";
+      status.title = String(err);
+    }
+  }
+}
+
+async function setAutostart(requested) {
+  if (!autostartApi?.enable || !autostartApi?.disable || !autostartApi?.isEnabled) {
+    throw new Error("自動起動 API を利用できません");
+  }
+  if (requested) {
+    await autostartApi.enable();
+  } else {
+    await autostartApi.disable();
+  }
+  autostartEnabled = await autostartApi.isEnabled();
+  return autostartEnabled;
+}
+
+function setAutostartPrompted() {
+  setStr(AUTOSTART_PROMPT_KEY, "1");
+}
+
+async function showInitialAutostartPrompt() {
+  if (!autostartApi?.enable || !autostartApi?.disable || !autostartApi?.isEnabled) return;
+  try {
+    if (localStorage.getItem(AUTOSTART_PROMPT_KEY) === "1") return;
+  } catch {
+    // ignore
+  }
+
+  // 既存ユーザーがすでに自分で ON にしていた場合は、その選択を尊重する。
+  if (autostartEnabled) {
+    setAutostartPrompted();
+    return;
+  }
+
+  const prompt = $("#autostart-prompt");
+  const enable = $("#autostart-prompt-enable");
+  const disable = $("#autostart-prompt-disable");
+  const status = $("#autostart-prompt-status");
+  if (!prompt || !enable || !disable) return;
+
+  try {
+    await currentWindow.show();
+    await currentWindow.setFocus();
+  } catch (err) {
+    console.error(err);
+  }
+  prompt.hidden = false;
+
+  const choose = async (requested) => {
+    enable.disabled = true;
+    disable.disabled = true;
+    if (status) {
+      status.hidden = true;
+      status.textContent = "";
+    }
+    try {
+      await setAutostart(requested);
+      setAutostartPrompted();
+      prompt.hidden = true;
+      renderControls();
+    } catch (err) {
+      console.error(err);
+      if (status) {
+        status.hidden = false;
+        status.textContent = `設定に失敗しました: ${String(err)}`;
+      }
+    } finally {
+      enable.disabled = false;
+      disable.disabled = false;
+    }
+  };
+
+  enable.addEventListener("click", () => choose(true));
+  disable.addEventListener("click", () => choose(false));
 }
 
 function refreshScaleButtons() {
@@ -292,6 +392,33 @@ $("#update-notify-toggle").addEventListener("change", (e) => {
   updateNotify = e.target.checked;
   setBool(UPDATE_NOTIFY_KEY, updateNotify);
   broadcast();
+});
+
+$("#autostart-toggle").addEventListener("change", async (e) => {
+  const toggle = e.target;
+  const requested = toggle.checked;
+  const previous = autostartEnabled;
+  if (!autostartApi?.enable || !autostartApi?.disable) {
+    toggle.checked = previous;
+    return;
+  }
+  toggle.disabled = true;
+  try {
+    await setAutostart(requested);
+    toggle.checked = autostartEnabled;
+    $("#autostart-status").textContent = autostartEnabled ? "有効" : "無効";
+  } catch (err) {
+    console.error(err);
+    autostartEnabled = previous;
+    toggle.checked = previous;
+    const status = $("#autostart-status");
+    if (status) {
+      status.textContent = "変更に失敗";
+      status.title = String(err);
+    }
+  } finally {
+    toggle.disabled = false;
+  }
 });
 
 // ───── 認証情報 / Claude Desktop テスト ─────
@@ -512,4 +639,7 @@ setInterval(() => {
 }, 5000);
 window.addEventListener("focus", renderAccessStats);
 
-init();
+init()
+  .then(loadAutostart)
+  .then(showInitialAutostartPrompt)
+  .catch((err) => console.error(err));

@@ -390,6 +390,19 @@ body:not([data-form="card"]) .update-banner {
   display: none;
 }
 
+/* card 以外の形では、アイコンを右端の中央に縦に積む (横長の cols で右側の
+   プロバイダの文字に横一列で重ならないように。v0.9.7 の配置を引き継ぐ)。 */
+body:not([data-form="card"]) .card__header {
+  top: 50%;
+  right: 1px;
+  left: auto;
+  transform: translateY(-50%);
+}
+body:not([data-form="card"]) .header-actions {
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+
 /* ── 共通の中身 ── */
 #content {
   flex: 1 1 auto;
@@ -575,7 +588,10 @@ body[data-titles="0"] .bucket__title,
 body[data-footer="0"] .card__footer {
   display: none;
 }
-body[data-show-weekly="false"] .bucket--weekly {
+/* Codex は週次の使用量だけを持ち、大きい数字 (data-kind="weekly") が週間の値。
+   週間を非表示にする設定では、これも隠す。 */
+body[data-show-weekly="false"] .bucket--weekly,
+body[data-show-weekly="false"] .bucket--hero[data-kind="weekly"] {
   display: none !important;
 }
 body[data-show-resets="false"] .bucket__resets {
@@ -689,7 +705,7 @@ body[data-resets="none"] .bucket__resets {
   display: none;
 }
 body[data-metric="5h"] .bucket--weekly,
-body[data-metric="weekly"] .bucket--hero {
+body[data-metric="weekly"] .bucket--hero:not([data-kind="weekly"]) {
   display: none;
 }
 

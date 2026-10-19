@@ -1,6 +1,6 @@
 //! メニューバー / システムトレイ。
 //!
-//! 表示: 現在のセッション (5h) の utilization % のみ。詳細はポップオーバーで。
+//! 表示: Claude は現在のセッション (5h)、Codex は週間使用量の utilization %。
 //! 5 分おき (ユーザ設定で変更可) に自動更新。429 を受けたら Retry-After を尊重。
 
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -325,26 +325,30 @@ fn format_dual_title(all: &AllUsage, show_claude: bool, show_codex: bool) -> Str
     let metric = current_tray_metric();
     match (show_claude, show_codex) {
         (true, true) => {
-            let c = short_status(&all.claude, metric);
-            let x = short_status(&all.codex, metric);
+            let c = short_status(Provider::Claude, &all.claude, metric);
+            let x = short_status(Provider::Codex, &all.codex, metric);
             if c == "!" && x == "!" {
                 "!".to_string()
             } else {
                 format!("C {} · X {}", c, x)
             }
         }
-        (true, false) => short_status(&all.claude, metric),
-        (false, true) => short_status(&all.codex, metric),
+        (true, false) => short_status(Provider::Claude, &all.claude, metric),
+        (false, true) => short_status(Provider::Codex, &all.codex, metric),
         (false, false) => String::new(),
     }
 }
 
-fn short_status(r: &FetchResult, metric: TrayMetric) -> String {
+fn short_status(provider: Provider, r: &FetchResult, metric: TrayMetric) -> String {
     match r {
         FetchResult::Ok { snapshot, .. } => {
-            let bucket = match metric {
-                TrayMetric::FiveHour => snapshot.five_hour.as_ref(),
-                TrayMetric::Weekly => snapshot.seven_day.as_ref(),
+            let bucket = match provider {
+                // Codex の primary_window (旧5h) は使用せず、設定値に関係なく週次を表示。
+                Provider::Codex => snapshot.seven_day.as_ref(),
+                Provider::Claude => match metric {
+                    TrayMetric::FiveHour => snapshot.five_hour.as_ref(),
+                    TrayMetric::Weekly => snapshot.seven_day.as_ref(),
+                },
             };
             match bucket {
                 Some(b) => format!("{}%", pct(b.utilization)),
@@ -381,7 +385,9 @@ fn provider_label(p: Provider) -> &'static str {
 fn provider_tooltip_line(provider: Provider, r: &FetchResult) -> String {
     let name = provider_label(provider);
     match r {
-        FetchResult::Ok { snapshot, .. } => format!("{}: {}", name, format_tooltip(snapshot)),
+        FetchResult::Ok { snapshot, .. } => {
+            format!("{}: {}", name, format_tooltip(provider, snapshot))
+        }
         FetchResult::RateLimited {
             retry_after_secs, ..
         } => {
@@ -394,10 +400,12 @@ fn provider_tooltip_line(provider: Provider, r: &FetchResult) -> String {
     }
 }
 
-fn format_tooltip(s: &UsageSnapshot) -> String {
+fn format_tooltip(provider: Provider, s: &UsageSnapshot) -> String {
     let mut parts = Vec::new();
-    if let Some(b) = &s.five_hour {
-        parts.push(format!("5h: {}%", pct(b.utilization)));
+    if provider == Provider::Claude {
+        if let Some(b) = &s.five_hour {
+            parts.push(format!("5h: {}%", pct(b.utilization)));
+        }
     }
     if let Some(b) = &s.seven_day {
         parts.push(format!("7d: {}%", pct(b.utilization)));
@@ -655,7 +663,7 @@ mod tests {
                 },
             },
         };
-        assert_eq!(format_dual_title(&all, true, true), "C 43% · X 30%");
+        assert_eq!(format_dual_title(&all, true, true), "C 43% · X 12%");
     }
 
     #[test]
@@ -704,7 +712,7 @@ mod tests {
             codex: FetchResult::Ok {
                 provider: Provider::Codex,
                 snapshot: UsageSnapshot {
-                    five_hour: Some(b(0.30)),
+                    seven_day: Some(b(0.30)),
                     ..UsageSnapshot::default()
                 },
             },
@@ -742,6 +750,16 @@ mod tests {
     }
 
     #[test]
+    fn codex_tooltip_uses_weekly_only() {
+        let snapshot = UsageSnapshot {
+            five_hour: Some(b(0.30)),
+            seven_day: Some(b(0.12)),
+            ..UsageSnapshot::default()
+        };
+        assert_eq!(format_tooltip(Provider::Codex, &snapshot), "7d: 12%");
+    }
+
+    #[test]
     fn decide_sleep_backs_off_on_credential_restricted() {
         let r = FetchResult::CredentialRestricted {
             provider: Provider::Claude,
@@ -764,6 +782,7 @@ mod tests {
                 provider: Provider::Codex,
                 snapshot: UsageSnapshot {
                     five_hour: Some(b(0.30)),
+                    seven_day: Some(b(0.30)),
                     ..UsageSnapshot::default()
                 },
             },
