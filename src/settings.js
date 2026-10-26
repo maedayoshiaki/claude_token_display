@@ -434,10 +434,17 @@ function renderCredentialEntry(key, entry) {
   const subscription = root.querySelector('[data-field="subscription"]');
   const tier = root.querySelector('[data-field="tier"]');
 
+  const expired = !!entry?.available && !!entry?.expired;
   root.dataset.available = String(!!entry?.available);
+  root.dataset.expired = String(expired);
   if (status) {
-    status.textContent = entry?.available ? "利用可能" : "未検出";
-    status.title = entry?.available ? "" : (entry?.error || "");
+    if (expired) {
+      status.textContent = "期限切れ";
+      status.title = "トークンの期限が切れています。Claude Desktop にログインしていれば、そちらのトークンで取得します。";
+    } else {
+      status.textContent = entry?.available ? "利用可能" : "未検出";
+      status.title = entry?.available ? "" : (entry?.error || "");
+    }
   }
   if (organization) {
     organization.textContent =

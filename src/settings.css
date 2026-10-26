@@ -178,6 +178,10 @@ body {
   color: var(--bar-fill-high);
 }
 
+.settings__credential[data-expired="true"] .settings__credential-status {
+  color: var(--bar-fill-mid);
+}
+
 .settings__credential-meta {
   display: grid;
   gap: 4px;
