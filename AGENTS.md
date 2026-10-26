@@ -119,9 +119,10 @@ Claude Code CLI が未ログインでも、**Claude Desktop にログイン済�
 
 - **期限切れ CLI トークンの先回りフォールバック** (`fetch_claude`): Claude Code CLI を起動していない間 (= Claude Desktop のみ起動) は `.credentials.json` のトークンが更新されず期限切れのまま残る。その死んだトークンで usage API を叩くと 401、あるいは無効トークンの連続アクセスで **429** になり、429 は Desktop フォールバック (`should_try_desktop_after_cli_api_error` は 401/403 のみ) の対象外なので「使用量が取れない」状態に陥っていた。対策として `keychain::ClaudeCodeCredential` に `expiresAt` (`claudeAiOauth.expiresAt`) を持たせ、`is_expired_at` で**ローカルに期限切れと分かる CLI トークンは API を叩く前に Desktop トークンへ先回りフォールバック**する (`CLI_TOKEN_EXPIRY_MARGIN_MS` 分の前倒し余裕つき)。Desktop が無い / CLI と同一トークンなら期限切れでも CLI を最後の手段として試す。
 
-- 設定ファイル (Windows はインストール形態で場所が変わる。`desktop_data_dir` が `config.json` 実在の最初の候補を選ぶ):
+- 設定ファイル (Windows はインストール形態・バージョンで場所が変わる。`desktop_data_dir` は `config.json` が実在する候補のうち**最も新しく更新されたもの**を選ぶ — 旧版の config.json が残っていても現行版を拾うため):
+  - **Windows Claude Desktop 3.x 以降** (Store 版 v3.6556 で確認): `%LOCALAPPDATA%\Claude-Data\claude_<publisherハッシュ>\config.json` (+ 同じ場所の `Local State`)。旧 MSIX の `LocalCache\Roaming\Claude` からここへ移行され、旧場所には `.user-data-left.*` マーカーだけが残る。
   - Windows 旧 .exe (NSIS/Squirrel) 版: `%APPDATA%\Claude\config.json`
-  - **Windows Microsoft Store / MSIX 版**: `%APPDATA%` がパッケージ専用フォルダにリダイレクトされ、実体は `%LOCALAPPDATA%\Packages\Claude_<publisherハッシュ>\LocalCache\Roaming\Claude\config.json` (例: `Claude_pzs8sxrjxfjjc`)。`%LOCALAPPDATA%\Packages` 配下を `Claude` 始まりで列挙して候補化する。**実機 (Store 版 v1.14271) で end-to-end 確認済み: 取得トークンで `/api/oauth/usage` が 200 を返し使用率を取得**。
+  - **Windows 旧 Microsoft Store / MSIX 版**: `%APPDATA%` がパッケージ専用フォルダにリダイレクトされ、実体は `%LOCALAPPDATA%\Packages\Claude_<publisherハッシュ>\LocalCache\Roaming\Claude\config.json` (例: `Claude_pzs8sxrjxfjjc`)。`%LOCALAPPDATA%\Packages` 配下を `Claude` 始まりで列挙して候補化する。**実機 (Store 版 v1.14271) で end-to-end 確認済み: 取得トークンで `/api/oauth/usage` が 200 を返し使用率を取得**。
   - macOS: `~/Library/Application Support/Claude/config.json` (Mac App Store のサンドボックス版が出たら `~/Library/Containers/.../Data/...` への同種リダイレクト対応が要る — 現状は直 DL .dmg 版のみ)
 - トークンは `oauth:tokenCacheV2`（無ければ `oauth:tokenCache`）に base64。先頭 `v10` = Electron safeStorage / Chromium os_crypt（**Chrome の Cookie 暗号化と同一**。`Local State` の鍵プレフィックスは `DPAPI` で、Chrome 127+ の App-Bound Encryption ではない＝従来 DPAPI で復号可、を実機確認）。
   - Windows: `Local State` の `os_crypt.encrypted_key`（先頭 `DPAPI`）を `CryptUnprotectData` で 32B 鍵に → AES-256-GCM（`v10`+nonce12+ct+tag16）。
