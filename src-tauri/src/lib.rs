@@ -292,6 +292,8 @@ pub struct CredentialEntry {
     pub rate_limit_tier: Option<String>,
     pub account_label: Option<String>,
     pub error: Option<String>,
+    /// 読めたがアクセストークンの期限が切れている (Claude Code のみ判定する)。
+    pub expired: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -726,17 +728,25 @@ fn desktop_account_label(c: &claude_desktop::DesktopCredential) -> Option<String
     )
 }
 
+/// Claude Code の `.credentials.json` は CLI を起動していない間は更新されず、期限切れのまま
+/// 残る。読めただけで「利用可能」と出すと Desktop のトークンで取得していることが分からないので、
+/// 期限切れを `expired` で区別する。
+fn claude_code_entry(c: &keychain::ClaudeCodeCredential, now_ms: i64) -> CredentialEntry {
+    CredentialEntry {
+        source: "Claude Code".to_string(),
+        available: true,
+        organization_uuid: c.organization_uuid.clone(),
+        subscription_type: c.subscription_type.clone(),
+        rate_limit_tier: c.rate_limit_tier.clone(),
+        account_label: cli_account_label(c),
+        error: None,
+        expired: c.is_expired_at(now_ms, 0),
+    }
+}
+
 fn credential_info() -> CredentialInfo {
     let claude_code = match keychain::read_credentials() {
-        Ok(c) => CredentialEntry {
-            source: "Claude Code".to_string(),
-            available: true,
-            organization_uuid: c.organization_uuid.clone(),
-            subscription_type: c.subscription_type.clone(),
-            rate_limit_tier: c.rate_limit_tier.clone(),
-            account_label: cli_account_label(&c),
-            error: None,
-        },
+        Ok(c) => claude_code_entry(&c, now_ms()),
         Err(e) => CredentialEntry {
             source: "Claude Code".to_string(),
             available: false,
@@ -745,6 +755,7 @@ fn credential_info() -> CredentialInfo {
             rate_limit_tier: None,
             account_label: None,
             error: Some(e.to_string()),
+            expired: false,
         },
     };
 
@@ -757,6 +768,7 @@ fn credential_info() -> CredentialInfo {
             rate_limit_tier: c.rate_limit_tier.clone(),
             account_label: desktop_account_label(&c),
             error: None,
+            expired: false,
         },
         Err(e) => CredentialEntry {
             source: "Claude Desktop".to_string(),
@@ -766,6 +778,7 @@ fn credential_info() -> CredentialInfo {
             rate_limit_tier: None,
             account_label: None,
             error: Some(e.to_string()),
+            expired: false,
         },
     };
 
@@ -778,6 +791,7 @@ fn credential_info() -> CredentialInfo {
             rate_limit_tier: None,
             account_label: c.account_id.as_deref().map(short_id),
             error: None,
+            expired: false,
         },
         Err(e) => CredentialEntry {
             source: "Codex CLI".to_string(),
@@ -787,6 +801,7 @@ fn credential_info() -> CredentialInfo {
             rate_limit_tier: None,
             account_label: None,
             error: Some(e.to_string()),
+            expired: false,
         },
     };
 
@@ -1004,6 +1019,36 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn cli_credential_expiring_at(expires_at: Option<i64>) -> keychain::ClaudeCodeCredential {
+        keychain::ClaudeCodeCredential {
+            access_token: "t".into(),
+            expires_at,
+            organization_uuid: None,
+            subscription_type: Some("max".into()),
+            rate_limit_tier: None,
+        }
+    }
+
+    #[test]
+    fn claude_code_entry_marks_expired_token() {
+        let entry = claude_code_entry(&cli_credential_expiring_at(Some(1_000)), 2_000);
+        assert!(entry.available);
+        assert!(entry.expired);
+    }
+
+    #[test]
+    fn claude_code_entry_keeps_fresh_token_unexpired() {
+        let entry = claude_code_entry(&cli_credential_expiring_at(Some(5_000)), 2_000);
+        assert!(entry.available);
+        assert!(!entry.expired);
+    }
+
+    #[test]
+    fn claude_code_entry_unknown_expiry_is_not_expired() {
+        let entry = claude_code_entry(&cli_credential_expiring_at(None), 2_000);
+        assert!(!entry.expired);
+    }
 
     #[test]
     fn focus_loss_is_ignored_while_pinned() {

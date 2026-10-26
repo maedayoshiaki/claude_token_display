@@ -35,6 +35,10 @@ pub enum DesktopError {
     #[error("Failed to read Claude Desktop config: {0}")]
     Access(String),
 
+    /// Claude Desktop が書き換え中でファイルが一時的にロックされている (Windows の共有違反など)。
+    #[error("Claude Desktop config is busy: {0}")]
+    Busy(String),
+
     #[error("Claude Desktop config is not valid JSON: {0}")]
     Decode(String),
 
@@ -84,8 +88,26 @@ fn is_transient(e: &DesktopError) -> bool {
     // Access は「ファイルはあるが中身が無い/読めない」= 恒久的なのでリトライしない。
     matches!(
         e,
-        DesktopError::NotFound | DesktopError::Decode(_) | DesktopError::Decrypt(_)
+        DesktopError::NotFound
+            | DesktopError::Busy(_)
+            | DesktopError::Decode(_)
+            | DesktopError::Decrypt(_)
     )
+}
+
+/// ファイル読み取りの I/O エラーを分類する。Windows の ERROR_SHARING_VIOLATION (32) /
+/// ERROR_LOCK_VIOLATION (33) は書き換え中の一時的なロックなので `Busy` (リトライ対象) にする。
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn io_error(path: &std::path::Path, e: std::io::Error) -> DesktopError {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        return DesktopError::NotFound;
+    }
+    let message = format!("{}: {}", path.display(), e);
+    if cfg!(target_os = "windows") && matches!(e.raw_os_error(), Some(32 | 33)) {
+        DesktopError::Busy(message)
+    } else {
+        DesktopError::Access(message)
+    }
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
@@ -104,11 +126,7 @@ pub fn read_credentials() -> Result<DesktopCredential, DesktopError> {
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 fn read_config_json() -> Result<String, DesktopError> {
     let path = config_path()?;
-    match std::fs::read_to_string(&path) {
-        Ok(s) => Ok(s),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(DesktopError::NotFound),
-        Err(e) => Err(DesktopError::Access(format!("{}: {}", path.display(), e))),
-    }
+    std::fs::read_to_string(&path).map_err(|e| io_error(&path, e))
 }
 
 #[cfg(target_os = "windows")]
@@ -347,7 +365,13 @@ fn best_v2_credential(v: &serde_json::Value, now_ms: i64) -> Option<DesktopCrede
     best.map(|(_, c)| c)
 }
 
+/// キーの形は `<clientId>:<orgId>:<audience>:<scopes>`。2026-10 時点の Claude Desktop は
+/// 先頭に `acct:<accountUuid>|` を付けるので、それを外してから orgId を取る。
 fn organization_uuid_from_v2_key(key: &str) -> Option<String> {
+    let key = key
+        .strip_prefix("acct:")
+        .and_then(|rest| rest.split_once('|'))
+        .map_or(key, |(_, rest)| rest);
     key.split(':')
         .nth(1)
         .filter(|s| !s.is_empty() && !s.contains("anthropic.com"))
@@ -423,11 +447,7 @@ fn windows_os_crypt_key() -> Result<Vec<u8>, DesktopError> {
     use base64::Engine as _;
 
     let path = desktop_data_dir()?.join("Local State");
-    let raw = match std::fs::read_to_string(&path) {
-        Ok(s) => s,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(DesktopError::NotFound),
-        Err(e) => return Err(DesktopError::Access(format!("{}: {}", path.display(), e))),
-    };
+    let raw = std::fs::read_to_string(&path).map_err(|e| io_error(&path, e))?;
     let v: serde_json::Value =
         serde_json::from_str(&raw).map_err(|e| DesktopError::Decode(e.to_string()))?;
     let enc_key_b64 = v
@@ -614,6 +634,50 @@ mod tests {
         assert_eq!(credential.organization_uuid.as_deref(), Some("org-123"));
         assert_eq!(credential.subscription_type.as_deref(), Some("max"));
         assert_eq!(credential.rate_limit_tier.as_deref(), Some("tier_1"));
+    }
+
+    #[test]
+    fn organization_uuid_from_legacy_v2_key() {
+        let key = "9d1c:org-123:https://api.anthropic.com:user:inference user:profile";
+        assert_eq!(
+            organization_uuid_from_v2_key(key).as_deref(),
+            Some("org-123")
+        );
+    }
+
+    #[test]
+    fn organization_uuid_from_account_prefixed_v2_key() {
+        // 2026-10 時点の実機の形: 先頭に `acct:<accountUuid>|` が付く。
+        let key = "acct:23aafbb9-0000-0000-0000-000000000000|9d1c250a-0000-0000-0000-000000000000:60fcb680-0000-0000-0000-000000000000:https://api.anthropic.com:user:profile";
+        assert_eq!(
+            organization_uuid_from_v2_key(key).as_deref(),
+            Some("60fcb680-0000-0000-0000-000000000000")
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn sharing_violation_is_transient() {
+        // Windows の ERROR_SHARING_VIOLATION (32) / ERROR_LOCK_VIOLATION (33) は
+        // Claude Desktop が config.json を書き換えている最中に起こりうる。
+        let path = std::path::Path::new("config.json");
+        for code in [32, 33] {
+            let e = io_error(path, std::io::Error::from_raw_os_error(code));
+            assert!(matches!(e, DesktopError::Busy(_)), "code {code}: {e:?}");
+            assert!(is_transient(&e));
+        }
+    }
+
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    #[test]
+    fn permission_denied_is_not_transient() {
+        let path = std::path::Path::new("config.json");
+        let e = io_error(
+            path,
+            std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+        );
+        assert!(matches!(e, DesktopError::Access(_)));
+        assert!(!is_transient(&e));
     }
 
     #[test]
