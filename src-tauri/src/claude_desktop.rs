@@ -7,8 +7,10 @@
 //! ## 保存場所と暗号化方式 (Chromium os_crypt = Chrome の Cookie と同一)
 //!
 //! - 設定ファイル:
+//!   - Windows (Claude Desktop 3.x 以降): `%LOCALAPPDATA%\Claude-Data\claude_<publisherハッシュ>\config.json`
+//!     (例: `claude_pzs8sxrjxfjjc`)。旧 MSIX の LocalCache からここへ移行済み。
 //!   - Windows (旧 .exe 版): `%APPDATA%\Claude\config.json`
-//!   - Windows (Microsoft Store / MSIX 版): `%APPDATA%` がパッケージ専用フォルダに
+//!   - Windows (旧 Microsoft Store / MSIX 版): `%APPDATA%` がパッケージ専用フォルダに
 //!     リダイレクトされ、実体は
 //!     `%LOCALAPPDATA%\Packages\<PackageFamilyName>\LocalCache\Roaming\Claude\config.json`。
 //!     PackageFamilyName は `Claude_<publisherハッシュ>` (例: `Claude_pzs8sxrjxfjjc`)。
@@ -16,7 +18,7 @@
 //! - トークンは `oauth:tokenCacheV2` (無ければ `oauth:tokenCache`) に base64 文字列で入る。
 //!   先頭3バイトは `v10` (Electron safeStorage / os_crypt の版マーカー)。
 //! - 復号:
-//!   - Windows: AES-256-GCM。鍵は `%APPDATA%\Claude\Local State` の
+//!   - Windows: AES-256-GCM。鍵は config.json と同じディレクトリの `Local State` の
 //!     `os_crypt.encrypted_key` (base64, 先頭 "DPAPI") を DPAPI (`CryptUnprotectData`) で
 //!     アンラップした 32 バイト。暗号文 = `v10`(3) + nonce(12) + ciphertext + tag(16)。
 //!   - macOS: AES-128-CBC。鍵は Keychain の generic password `"Claude Safe Storage"` を
@@ -135,12 +137,13 @@ fn config_path() -> Result<std::path::PathBuf, DesktopError> {
 }
 
 /// Claude Desktop の data ディレクトリ (中に `config.json` / `Local State` がある) を解決する。
-/// インストール形態で場所が変わる:
+/// インストール形態・バージョンで場所が変わる:
+///  - Claude Desktop 3.x 以降: `%LOCALAPPDATA%\Claude-Data\claude_<publisherハッシュ>`
 ///  - 旧 .exe (NSIS/Squirrel) 版: `%APPDATA%\Claude`
-///  - Microsoft Store / MSIX 版: `%APPDATA%` がパッケージ専用フォルダにリダイレクトされ、
+///  - 旧 Microsoft Store / MSIX 版: `%APPDATA%` がパッケージ専用フォルダにリダイレクトされ、
 ///    実体は `%LOCALAPPDATA%\Packages\<PackageFamilyName>\LocalCache\Roaming\Claude`。
 ///
-/// `config.json` が実在する最初の候補を返す。`Local State` も同じディレクトリから読むことで、
+/// `config.json` が実在する候補のうち最も新しく更新されたものを返す。`Local State` も同じディレクトリから読むことで、
 /// os_crypt 鍵と暗号文の組が必ず一致するようにする。
 #[cfg(target_os = "windows")]
 fn desktop_data_dir() -> Result<std::path::PathBuf, DesktopError> {
@@ -150,8 +153,8 @@ fn desktop_data_dir() -> Result<std::path::PathBuf, DesktopError> {
     let local_appdata = std::env::var_os("LOCALAPPDATA")
         .filter(|v| !v.is_empty())
         .map(std::path::PathBuf::from);
-    let list_packages = |packages: &std::path::Path| -> Vec<String> {
-        match std::fs::read_dir(packages) {
+    let list_dir = |dir: &std::path::Path| -> Vec<String> {
+        match std::fs::read_dir(dir) {
             Ok(rd) => rd
                 .flatten()
                 .filter_map(|e| e.file_name().into_string().ok())
@@ -159,27 +162,47 @@ fn desktop_data_dir() -> Result<std::path::PathBuf, DesktopError> {
             Err(_) => Vec::new(),
         }
     };
-    windows_candidate_dirs(appdata.as_deref(), local_appdata.as_deref(), list_packages)
-        .into_iter()
-        .find(|dir| dir.join("config.json").exists())
-        .ok_or(DesktopError::NotFound)
+    // 旧インストールの config.json が残っていることがあるので、実在する候補のうち
+    // 最も新しく更新されたものを選ぶ (同時刻なら候補順で先のもの)。
+    let mut best: Option<(std::path::PathBuf, std::time::SystemTime)> = None;
+    for dir in windows_candidate_dirs(appdata.as_deref(), local_appdata.as_deref(), list_dir) {
+        let Ok(meta) = std::fs::metadata(dir.join("config.json")) else {
+            continue;
+        };
+        let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
+        if best.as_ref().map_or(true, |(_, t)| mtime > *t) {
+            best = Some((dir, mtime));
+        }
+    }
+    best.map(|(dir, _)| dir).ok_or(DesktopError::NotFound)
 }
 
-/// data ディレクトリの候補を優先順 (旧 .exe 版 → MSIX 版) に並べる純粋関数。
-/// `%LOCALAPPDATA%\Packages` 配下の列挙はテスト用にクロージャで注入する。
+/// data ディレクトリの候補を優先順 (Claude-Data 版 → 旧 .exe 版 → MSIX 版) に並べる純粋関数。
+/// ディレクトリ列挙 (`%LOCALAPPDATA%\Claude-Data` / `%LOCALAPPDATA%\Packages`) は
+/// テスト用にクロージャで注入する。
 #[cfg(target_os = "windows")]
 fn windows_candidate_dirs(
     appdata: Option<&std::path::Path>,
     local_appdata: Option<&std::path::Path>,
-    list_packages: impl Fn(&std::path::Path) -> Vec<String>,
+    list_dir: impl Fn(&std::path::Path) -> Vec<String>,
 ) -> Vec<std::path::PathBuf> {
     let mut dirs = Vec::new();
+    if let Some(local) = local_appdata {
+        // Claude Desktop 3.x 以降: `%LOCALAPPDATA%\Claude-Data\claude_<publisherハッシュ>`。
+        // パッケージ版でも LocalCache 配下ではなくここに data を移している。
+        let data_root = local.join("Claude-Data");
+        for name in list_dir(&data_root) {
+            if name.to_ascii_lowercase().starts_with("claude") {
+                dirs.push(data_root.join(name));
+            }
+        }
+    }
     if let Some(appdata) = appdata {
         dirs.push(appdata.join("Claude"));
     }
     if let Some(local) = local_appdata {
         let packages = local.join("Packages");
-        for name in list_packages(&packages) {
+        for name in list_dir(&packages) {
             // PackageFamilyName が "Claude" で始まるもの (`Claude_<hash>`) だけを候補にする。
             if name.starts_with("Claude") {
                 dirs.push(
@@ -782,11 +805,15 @@ mod tests {
         let appdata = PathBuf::from(r"C:\Users\me\AppData\Roaming");
         let local = PathBuf::from(r"C:\Users\me\AppData\Local");
         // %LOCALAPPDATA%\Packages の中身を模擬。Claude 以外は無視されるべき。
-        let list = |_p: &Path| {
-            vec![
-                "Microsoft.WindowsStore_8wekyb3d8bbwe".to_string(),
-                "Claude_pzs8sxrjxfjjc".to_string(),
-            ]
+        let list = |p: &Path| {
+            if p.ends_with("Packages") {
+                vec![
+                    "Microsoft.WindowsStore_8wekyb3d8bbwe".to_string(),
+                    "Claude_pzs8sxrjxfjjc".to_string(),
+                ]
+            } else {
+                Vec::new()
+            }
         };
         let dirs = windows_candidate_dirs(Some(&appdata), Some(&local), list);
         assert_eq!(dirs.len(), 2, "appdata + 1 MSIX package");
@@ -818,9 +845,42 @@ mod tests {
     fn windows_candidates_without_appdata_still_finds_msix() {
         use std::path::{Path, PathBuf};
         let local = PathBuf::from(r"C:\L");
-        let list = |_p: &Path| vec!["Claude_abcde".to_string()];
+        let list = |p: &Path| {
+            if p.ends_with("Packages") {
+                vec!["Claude_abcde".to_string()]
+            } else {
+                Vec::new()
+            }
+        };
         let dirs = windows_candidate_dirs(None, Some(&local), list);
         assert_eq!(dirs.len(), 1);
         assert!(dirs[0].ends_with(r"Claude_abcde\LocalCache\Roaming\Claude"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_candidates_put_claude_data_first() {
+        use std::path::{Path, PathBuf};
+        let appdata = PathBuf::from(r"C:\Users\me\AppData\Roaming");
+        let local = PathBuf::from(r"C:\Users\me\AppData\Local");
+        // Claude Desktop 3.x: %LOCALAPPDATA%\Claude-Data\claude_<hash> に data がある。
+        let list = |p: &Path| {
+            if p.ends_with("Claude-Data") {
+                vec!["README.txt".to_string(), "claude_pzs8sxrjxfjjc".to_string()]
+            } else if p.ends_with("Packages") {
+                vec!["Claude_pzs8sxrjxfjjc".to_string()]
+            } else {
+                Vec::new()
+            }
+        };
+        let dirs = windows_candidate_dirs(Some(&appdata), Some(&local), list);
+        assert_eq!(dirs.len(), 3, "Claude-Data + appdata + 1 MSIX package");
+        assert_eq!(
+            dirs[0],
+            local.join("Claude-Data").join("claude_pzs8sxrjxfjjc"),
+            "Claude-Data path first"
+        );
+        assert_eq!(dirs[1], appdata.join("Claude"));
+        assert!(dirs[2].ends_with(r"Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude"));
     }
 }
