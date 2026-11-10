@@ -335,7 +335,7 @@ fn update_tray<R: Runtime>(tray: &tauri::tray::TrayIcon<R>, all: &AllUsage) {
     let _ = tray.set_tooltip(Some(tooltip));
 }
 
-/// トレイ title は表示中のプロバイダのメトリクスを併記: `C 43% · X 30%`。
+/// トレイ title は表示中のプロバイダのメトリクスを併記: `C 43% X 30%`。
 /// 片方しかログインしていない場合は失敗側を `!` に。両方失敗で `!`。
 /// 片方だけ表示 (トレイ設定で非表示) のときは接頭辞なしの数字のみ (`43%`)。
 /// 両方非表示なら空文字 (アイコンのみ)。
@@ -348,7 +348,7 @@ fn format_dual_title(all: &AllUsage, show_claude: bool, show_codex: bool) -> Str
             if c == "!" && x == "!" {
                 "!".to_string()
             } else {
-                format!("C {} · X {}", c, x)
+                format!("C {} X {}", c, x)
             }
         }
         (true, false) => short_status(Provider::Claude, &all.claude, metric),
@@ -735,7 +735,7 @@ mod tests {
                 },
             },
         };
-        assert_eq!(format_dual_title(&all, true, true), "C 43% · X 12%");
+        assert_eq!(format_dual_title(&all, true, true), "C 43% X 12%");
     }
 
     #[test]
@@ -753,7 +753,7 @@ mod tests {
                 message: "not logged in".into(),
             },
         };
-        assert_eq!(format_dual_title(&all, true, true), "C 43% · X !");
+        assert_eq!(format_dual_title(&all, true, true), "C 43% X !");
     }
 
     #[test]
@@ -887,7 +887,7 @@ mod tests {
                 },
             },
         };
-        assert_eq!(format_dual_title(&all, true, true), "C ! · X 30%");
+        assert_eq!(format_dual_title(&all, true, true), "C ! X 30%");
     }
 
     #[test]
