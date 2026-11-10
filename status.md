@@ -52,10 +52,10 @@
 
 ## リリース状況
 
-- 現在のバージョン: **v0.9.8** (Claude の週次表示に誤って 5h ラベルが付く問題を修正)
+- 現在のバージョン: **v0.10.4** (2026-11-10, 5h 枠が返らないときに週間を主表示 + macOS 27 のメニューバーのクリック修正)
 - v0.7.1 (2026-06-23, Desktop フォールバック再試行強化 + 認証メタ情報表示 + cache 破棄再読込)
 - ビルド対象: macOS aarch64 / x86_64, Windows x64
-- 配布: GitHub Releases。**`v*` tag を push すると `release.yml` が自動発火** → Mac/Win バイナリをビルドして自動 publish (draft なし)。`workflow_dispatch` でも手動起動可。
+- 配布: GitHub Releases。**`v*` tag を push すると `release.yml` が自動発火** → Mac/Win バイナリと updater 成果物・`latest.json` を **Draft Release** に添付する。3 プラットフォーム分の成果物と `latest.json` が揃ったのを確認してから手動で publish する (v0.9.0 以降)。`workflow_dispatch` でも手動起動可。
 
 ## 運用メモ
 
