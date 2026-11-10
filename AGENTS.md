@@ -102,6 +102,16 @@ git commit -m "Update app icon"
 - `utilization` は **0〜100 の整数 or 浮動小数**（100超過もありうる）。Rust 側で `/100.0` して 0.0〜1.0+ に正規化。
 - `resets_at` は ISO 8601。
 - Headers 必須: `Authorization: Bearer <token>` と `anthropic-beta: oauth-2025-04-20`。
+- **`five_hour` は API が返している間だけ存在する** (2026-11-09 時点の Max 20x アカウントでは `null`)。`api.rs` の `RawUsage::into_snapshot` で、`null` またはリセット時刻を過ぎた `five_hour` は無いものとして扱う。このとき Claude の大きい数字とバーは週間 (`seven_day`) を出し (`main.js` が `data-hero="weekly"` を付ける)、メニューバーも設定が「5h セッション」なら週間に切り替える。
+- 応答には `limits[]` (`kind` = `session` / `weekly_all` / `weekly_scoped`、`percent` は 0〜100) も入る。`five_hour` / `seven_day` が無いときは `session` / `weekly_all` 行で補う。`limits[]` は形が変わっても応答全体の解釈を失敗させないよう、行ごとに読む。`weekly_scoped` (モデル別の週間。2026-11-09 時点では Fable) は表示していない。
+
+### macOS 27 のメニューバーのクリック (`macos_panel.rs::install_outside_click_dismiss`)
+
+macOS 27.2 では、メニューバーのアイコンのクリックがアプリに届かない。tray-icon の `mouseDown` が呼ばれず `TrayIconEvent::Click` が来ない (`Enter` / `Leave` は来る)。クリックは NSEvent のグローバル監視 (アプリ外クリックの検出) に届くので、そこでステータス項目のウィンドウ枠 (`with_inner_tray_icon` → `ns_status_item` → `button.window().frame()`) とカーソル位置を比べ、枠内なら左クリックで開閉、右クリックで `show_tray_menu` (メニューをカーソル位置に出す) を呼ぶ。
+
+- macOS ではトレイのメニューをステータス項目に登録しない (`TrayIconBuilder::menu` を呼ばない)。登録すると、システムが左クリックでもそのメニューを開き、ポップオーバーの開閉と交互に出る。
+- アイコンのクリックがアプリに届く OS では、従来どおり `TrayIconEvent::Click` で開閉し、右クリックは同じ `show_tray_menu` を呼ぶ。両方の経路から届いた場合に備え、`toggle_popover` は 300 ms 以内の再呼び出しを無視する。
+- macOS 26 以前での動作は確認していない。
 
 ### Keychain / Credential Manager のレコード形式
 

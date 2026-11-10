@@ -47,11 +47,23 @@ struct RawBucket {
     resets_at: Option<String>,
 }
 
+/// `limits[]` の 1 行。Claude Code 2.1.x は `kind` (`session` / `weekly_all` /
+/// `weekly_scoped` など) で行を分類している。`percent` は 0〜100。
+#[derive(Deserialize, Debug)]
+struct RawLimit {
+    kind: Option<String>,
+    percent: Option<f64>,
+    resets_at: Option<String>,
+}
+
 #[derive(Deserialize, Debug)]
 struct RawUsage {
     five_hour: Option<RawBucket>,
     seven_day: Option<RawBucket>,
     seven_day_sonnet: Option<RawBucket>,
+    /// 形が変わっても応答全体の解釈を失敗させないよう、行ごとに読む (`RawUsage::into_snapshot`)。
+    #[serde(default)]
+    limits: Option<serde_json::Value>,
 }
 
 /// frontend に渡す形式。
@@ -68,6 +80,57 @@ pub struct UsageSnapshot {
     pub seven_day: Option<Bucket>,
     pub seven_day_sonnet: Option<Bucket>,
     pub fetched_at: DateTime<Utc>,
+}
+
+impl RawLimit {
+    fn into_bucket(self) -> Option<Bucket> {
+        RawBucket {
+            utilization: self.percent,
+            resets_at: self.resets_at,
+        }
+        .into_bucket()
+    }
+}
+
+impl RawUsage {
+    /// API の応答をフロントに渡す形に直す。
+    ///
+    /// - `five_hour` は API が返している間だけ存在する。値があってもリセット時刻を
+    ///   過ぎていれば、その枠は終わっているので無いものとして扱う (Claude Code と同じ扱い)。
+    /// - `five_hour` / `seven_day` が無いときは `limits[]` の `session` / `weekly_all` 行で補う。
+    fn into_snapshot(self, now: DateTime<Utc>) -> UsageSnapshot {
+        let mut session_row = None;
+        let mut weekly_row = None;
+        let rows = match self.limits {
+            Some(serde_json::Value::Array(rows)) => rows,
+            _ => Vec::new(),
+        };
+        for row in rows
+            .into_iter()
+            .filter_map(|v| serde_json::from_value::<RawLimit>(v).ok())
+        {
+            match row.kind.as_deref() {
+                Some("session") if session_row.is_none() => session_row = Some(row),
+                Some("weekly_all") if weekly_row.is_none() => weekly_row = Some(row),
+                _ => {}
+            }
+        }
+        let five_hour = self
+            .five_hour
+            .and_then(RawBucket::into_bucket)
+            .or_else(|| session_row.and_then(RawLimit::into_bucket))
+            .filter(|b| b.resets_at.map_or(true, |r| r > now));
+        let seven_day = self
+            .seven_day
+            .and_then(RawBucket::into_bucket)
+            .or_else(|| weekly_row.and_then(RawLimit::into_bucket));
+        UsageSnapshot {
+            five_hour,
+            seven_day,
+            seven_day_sonnet: self.seven_day_sonnet.and_then(RawBucket::into_bucket),
+            fetched_at: now,
+        }
+    }
 }
 
 impl RawBucket {
@@ -149,6 +212,74 @@ mod tests {
         assert!(m.to_lowercase().contains("re-login") || m.to_lowercase().contains("restricted"));
     }
 
+    fn snapshot_of(json: &str, now: &str) -> UsageSnapshot {
+        let raw: RawUsage = serde_json::from_str(json).expect("valid usage json");
+        let now = DateTime::parse_from_rfc3339(now).unwrap().with_timezone(&Utc);
+        raw.into_snapshot(now)
+    }
+
+    #[test]
+    fn missing_five_hour_keeps_weekly() {
+        let s = snapshot_of(
+            r#"{"five_hour":null,"seven_day":{"utilization":17.0,"resets_at":"2026-11-12T09:00:00Z"}}"#,
+            "2026-11-09T09:00:00Z",
+        );
+        assert!(s.five_hour.is_none());
+        assert!((s.seven_day.unwrap().utilization - 0.17).abs() < 1e-9);
+    }
+
+    #[test]
+    fn five_hour_past_its_reset_is_dropped() {
+        let s = snapshot_of(
+            r#"{"five_hour":{"utilization":40.0,"resets_at":"2026-11-09T08:00:00Z"},"seven_day":{"utilization":17.0,"resets_at":null}}"#,
+            "2026-11-09T09:00:00Z",
+        );
+        assert!(s.five_hour.is_none());
+    }
+
+    #[test]
+    fn five_hour_before_its_reset_is_kept() {
+        let s = snapshot_of(
+            r#"{"five_hour":{"utilization":40.0,"resets_at":"2026-11-09T10:00:00Z"}}"#,
+            "2026-11-09T09:00:00Z",
+        );
+        assert!((s.five_hour.unwrap().utilization - 0.40).abs() < 1e-9);
+    }
+
+    #[test]
+    fn limits_rows_fill_missing_buckets() {
+        let s = snapshot_of(
+            r#"{"limits":[
+                {"kind":"weekly_scoped","group":"weekly","percent":5,"resets_at":null,"scope":{"model":{"display_name":"Fable"}}},
+                {"kind":"weekly_all","group":"weekly","percent":23,"resets_at":"2026-11-12T09:00:00Z"},
+                {"kind":"session","group":"session","percent":61,"resets_at":"2026-11-09T11:00:00Z"}
+            ]}"#,
+            "2026-11-09T09:00:00Z",
+        );
+        assert!((s.seven_day.unwrap().utilization - 0.23).abs() < 1e-9);
+        assert!((s.five_hour.unwrap().utilization - 0.61).abs() < 1e-9);
+    }
+
+    #[test]
+    fn top_level_buckets_win_over_limits_rows() {
+        let s = snapshot_of(
+            r#"{"seven_day":{"utilization":17.0,"resets_at":null},"limits":[{"kind":"weekly_all","percent":23,"resets_at":null}]}"#,
+            "2026-11-09T09:00:00Z",
+        );
+        assert!((s.seven_day.unwrap().utilization - 0.17).abs() < 1e-9);
+    }
+
+    #[test]
+    fn malformed_limits_rows_are_skipped() {
+        let s = snapshot_of(
+            r#"{"limits":[42,{"kind":"weekly_all","percent":"x"},{"kind":"weekly_all","percent":30,"resets_at":null}]}"#,
+            "2026-11-09T09:00:00Z",
+        );
+        assert!((s.seven_day.unwrap().utilization - 0.30).abs() < 1e-9);
+        let s = snapshot_of(r#"{"limits":{"unexpected":true}}"#, "2026-11-09T09:00:00Z");
+        assert!(s.seven_day.is_none());
+    }
+
     #[test]
     fn drops_bucket_when_utilization_is_missing() {
         let bucket = RawBucket {
@@ -223,15 +354,12 @@ pub async fn fetch_usage(access_token: &str) -> Result<UsageSnapshot, ApiError> 
         code => return Err(ApiError::Http(code)),
     }
 
-    let raw: RawUsage = resp
-        .json()
+    let body = resp
+        .text()
         .await
         .map_err(|e| ApiError::Decode(e.to_string()))?;
+    let raw: RawUsage =
+        serde_json::from_str(&body).map_err(|e| ApiError::Decode(e.to_string()))?;
 
-    Ok(UsageSnapshot {
-        five_hour: raw.five_hour.and_then(RawBucket::into_bucket),
-        seven_day: raw.seven_day.and_then(RawBucket::into_bucket),
-        seven_day_sonnet: raw.seven_day_sonnet.and_then(RawBucket::into_bucket),
-        fetched_at: Utc::now(),
-    })
+    Ok(raw.into_snapshot(Utc::now()))
 }

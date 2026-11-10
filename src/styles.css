@@ -704,6 +704,17 @@ body[data-metric="5h"] .bucket--weekly,
 body[data-metric="weekly"] .bucket--hero:not([data-kind="weekly"]) {
   display: none;
 }
+/* Claude の 5h 枠が無く、大きい数字が週間のとき (main.js が data-hero="weekly" を付ける)。
+   週間行には Sonnet 週間だけを残し、それも無ければ行ごと隠す。 */
+.provider[data-hero="weekly"] .bucket--weekly .bucket__name,
+.provider[data-hero="weekly"] .bucket__pct--weekly,
+.provider[data-hero="weekly"] .lbl-sep {
+  display: none;
+}
+.provider[data-hero="weekly"][data-has-sonnet="false"] .bucket--weekly,
+body[data-sonnet="0"] .provider[data-hero="weekly"] .bucket--weekly {
+  display: none;
+}
 
 /* line: プロバイダごとに 1 行 (時刻は各 % の下) */
 body[data-form="line"] .provider {

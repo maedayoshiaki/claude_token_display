@@ -3,7 +3,7 @@
 //! 表示: Claude は現在のセッション (5h)、Codex は週間使用量の utilization %。
 //! 5 分おき (ユーザ設定で変更可) に自動更新。429 を受けたら Retry-After を尊重。
 
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tauri::{
@@ -135,6 +135,9 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         &[&refresh_item, &wider_item, &reset_width_item, &quit_item],
     )?;
 
+    #[cfg(target_os = "macos")]
+    let _ = TRAY_MENU.set(Box::new(menu.clone()));
+
     let cache: Cache = Arc::new(Mutex::new(loading_all_usage()));
     let _ = USAGE_CACHE.set(cache.clone());
 
@@ -145,10 +148,15 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let menu_cache = cache.clone();
 
     let click_cache = cache.clone();
-    let tray = TrayIconBuilder::with_id("main")
+    let builder = TrayIconBuilder::with_id("main")
         .icon(tray_icon)
-        .icon_as_template(true)
-        .menu(&menu)
+        .icon_as_template(true);
+    // macOS ではメニューをステータス項目に登録しない。登録すると、アイコンのクリックを
+    // システム側が処理する macOS 27 では左クリックでもシステムがこのメニューを開き、
+    // ポップオーバーの開閉と交互に出る。右クリックのメニューは show_tray_menu で出す。
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.menu(&menu);
+    let tray = builder
         .show_menu_on_left_click(false)
         .title("…")
         .on_menu_event(move |_app, event| match event.id.as_ref() {
@@ -185,6 +193,16 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             } = &event
             {
                 toggle_popover(tray.app_handle(), &click_cache);
+            }
+            // アイコンのクリックがアプリに届く macOS (26 以前) の右クリック。
+            #[cfg(target_os = "macos")]
+            if let TrayIconEvent::Click {
+                button: MouseButton::Right,
+                button_state: MouseButtonState::Down,
+                ..
+            } = &event
+            {
+                show_tray_menu(tray.app_handle());
             }
         })
         .build(app)?;
@@ -317,7 +335,7 @@ fn update_tray<R: Runtime>(tray: &tauri::tray::TrayIcon<R>, all: &AllUsage) {
     let _ = tray.set_tooltip(Some(tooltip));
 }
 
-/// トレイ title は表示中のプロバイダのメトリクスを併記: `C 43% · X 30%`。
+/// トレイ title は表示中のプロバイダのメトリクスを併記: `C 43% X 30%`。
 /// 片方しかログインしていない場合は失敗側を `!` に。両方失敗で `!`。
 /// 片方だけ表示 (トレイ設定で非表示) のときは接頭辞なしの数字のみ (`43%`)。
 /// 両方非表示なら空文字 (アイコンのみ)。
@@ -330,7 +348,7 @@ fn format_dual_title(all: &AllUsage, show_claude: bool, show_codex: bool) -> Str
             if c == "!" && x == "!" {
                 "!".to_string()
             } else {
-                format!("C {} · X {}", c, x)
+                format!("C {} X {}", c, x)
             }
         }
         (true, false) => short_status(Provider::Claude, &all.claude, metric),
@@ -345,8 +363,12 @@ fn short_status(provider: Provider, r: &FetchResult, metric: TrayMetric) -> Stri
             let bucket = match provider {
                 // Codex の primary_window (旧5h) は使用せず、設定値に関係なく週次を表示。
                 Provider::Codex => snapshot.seven_day.as_ref(),
+                // 5h 枠は API が返している間だけ存在する。無ければ週間を出す。
                 Provider::Claude => match metric {
-                    TrayMetric::FiveHour => snapshot.five_hour.as_ref(),
+                    TrayMetric::FiveHour => snapshot
+                        .five_hour
+                        .as_ref()
+                        .or(snapshot.seven_day.as_ref()),
                     TrayMetric::Weekly => snapshot.seven_day.as_ref(),
                 },
             };
@@ -424,10 +446,60 @@ fn pct(u: f64) -> u32 {
     (u * 100.0).round() as u32
 }
 
+/// トレイのメニュー。macOS 27 ではアイコンの右クリックがアプリに届かないため、
+/// `macos_panel` の監視処理からこのメニューを直接出す。`Menu<R>` は R に依存するので Any で持つ。
+#[cfg(target_os = "macos")]
+static TRAY_MENU: OnceLock<Box<dyn std::any::Any + Send + Sync>> = OnceLock::new();
+
+/// 直近にポップオーバーを開閉した時刻 (epoch ms)。1 回のクリックが tray-icon の Click と
+/// アプリ外クリックの監視処理の両方から届いた場合に、二重に開閉しないようにする。
+static LAST_TOGGLE_MS: AtomicI64 = AtomicI64::new(0);
+const TOGGLE_DEBOUNCE_MS: i64 = 300;
+
+/// アイコンの矩形 (メイン画面の左上原点・物理 px) を記録する。ポップオーバーの位置計算に使う。
+#[cfg(target_os = "macos")]
+pub(crate) fn set_tray_rect(x: i32, y: i32, w: i32, h: i32) {
+    TRAY_X.store(x, Ordering::SeqCst);
+    TRAY_Y.store(y, Ordering::SeqCst);
+    TRAY_W.store(w, Ordering::SeqCst);
+    TRAY_H.store(h, Ordering::SeqCst);
+    TRAY_RECT_SET.store(true, Ordering::SeqCst);
+}
+
+/// メニューバーのアイコンの左クリックをアプリ外クリックとして受けたときの開閉。
+#[cfg(target_os = "macos")]
+pub(crate) fn toggle_popover_from_status_item<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(cache) = USAGE_CACHE.get() {
+        toggle_popover(app, cache);
+    }
+}
+
+/// メニューバーのアイコンの右クリックをアプリ外クリックとして受けたときに、トレイのメニューを
+/// カーソル位置に出す。メニューの項目は `on_menu_event` の処理にそのまま届く。
+#[cfg(target_os = "macos")]
+pub(crate) fn show_tray_menu<R: Runtime>(app: &AppHandle<R>) {
+    use tauri::menu::ContextMenu;
+    let Some(menu) = TRAY_MENU
+        .get()
+        .and_then(|m| m.downcast_ref::<Menu<R>>())
+    else {
+        return;
+    };
+    let Some(window) = app.get_webview_window("popover") else {
+        return;
+    };
+    let _ = menu.popup(window.as_ref().window());
+}
+
 fn toggle_popover<R: Runtime>(app: &AppHandle<R>, cache: &Cache) {
     let Some(window) = app.get_webview_window("popover") else {
         return;
     };
+    let now = now_ms();
+    if now - LAST_TOGGLE_MS.load(Ordering::SeqCst) < TOGGLE_DEBOUNCE_MS {
+        return;
+    }
+    LAST_TOGGLE_MS.store(now, Ordering::SeqCst);
     if window.is_visible().unwrap_or(false) {
         if crate::is_popover_pinned() {
             let _ = window.show();
@@ -663,7 +735,7 @@ mod tests {
                 },
             },
         };
-        assert_eq!(format_dual_title(&all, true, true), "C 43% · X 12%");
+        assert_eq!(format_dual_title(&all, true, true), "C 43% X 12%");
     }
 
     #[test]
@@ -681,7 +753,7 @@ mod tests {
                 message: "not logged in".into(),
             },
         };
-        assert_eq!(format_dual_title(&all, true, true), "C 43% · X !");
+        assert_eq!(format_dual_title(&all, true, true), "C 43% X !");
     }
 
     #[test]
@@ -760,6 +832,34 @@ mod tests {
     }
 
     #[test]
+    fn claude_title_falls_back_to_weekly_without_five_hour() {
+        let r = FetchResult::Ok {
+            provider: Provider::Claude,
+            snapshot: UsageSnapshot {
+                five_hour: None,
+                seven_day: Some(b(0.17)),
+                seven_day_sonnet: None,
+                fetched_at: chrono::Utc::now(),
+            },
+        };
+        assert_eq!(short_status(Provider::Claude, &r, TrayMetric::FiveHour), "17%");
+    }
+
+    #[test]
+    fn claude_title_prefers_five_hour_when_present() {
+        let r = FetchResult::Ok {
+            provider: Provider::Claude,
+            snapshot: UsageSnapshot {
+                five_hour: Some(b(0.43)),
+                seven_day: Some(b(0.17)),
+                seven_day_sonnet: None,
+                fetched_at: chrono::Utc::now(),
+            },
+        };
+        assert_eq!(short_status(Provider::Claude, &r, TrayMetric::FiveHour), "43%");
+    }
+
+    #[test]
     fn decide_sleep_backs_off_on_credential_restricted() {
         let r = FetchResult::CredentialRestricted {
             provider: Provider::Claude,
@@ -787,7 +887,7 @@ mod tests {
                 },
             },
         };
-        assert_eq!(format_dual_title(&all, true, true), "C ! · X 30%");
+        assert_eq!(format_dual_title(&all, true, true), "C ! X 30%");
     }
 
     #[test]

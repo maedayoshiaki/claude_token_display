@@ -29,6 +29,9 @@ function usage(opts) {
       fetched_at: new Date(now).toISOString(),
     },
   };
+  // API が 5h 枠を返さない場合 (大きい数字が週間になる)。
+  if (opts.noFiveHour) claude.snapshot.five_hour = null;
+  if (opts.noSonnet) claude.snapshot.seven_day_sonnet = null;
   const codex = opts.codexErr
     ? { kind: "err", message: "Codex のログイン情報が見つかりません。codex login を実行してください" }
     : {
@@ -52,6 +55,8 @@ const SCENARIOS = [
   { id: "codex-error", settings: {}, codexErr: true },
   { id: "update-banner", settings: {}, banner: true },
   { id: "mini-weekly", settings: { miniMetric: "weekly" } },
+  { id: "no-5h", settings: {}, noFiveHour: true },
+  { id: "no-5h-no-sonnet", settings: {}, noFiveHour: true, noSonnet: true },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
