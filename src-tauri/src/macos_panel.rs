@@ -14,9 +14,10 @@
 #![cfg(target_os = "macos")]
 
 use block2::RcBlock;
-use objc2::class;
+use objc2::{class, MainThreadMarker};
 use objc2_app_kit::{
-    NSEvent, NSEventMask, NSWindow, NSWindowCollectionBehavior, NSWindowLevel, NSWindowStyleMask,
+    NSEvent, NSEventMask, NSEventType, NSWindow, NSWindowCollectionBehavior, NSWindowLevel,
+    NSWindowStyleMask,
 };
 use std::ffi::c_void;
 use std::ptr::NonNull;
@@ -62,11 +63,72 @@ pub fn convert_to_nspanel<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) {
     ns_window.setStyleMask(new_mask);
 }
 
-/// アプリ外（他アプリのウィンドウやデスクトップ）でマウスダウンが起きたら
-/// popover を hide する。NonactivatingPanel 構成では Focused(false) が
-/// 発火しないため、これで代替する。
+// メニューバーの高さを得るための CoreGraphics (tray-icon と同じ座標変換に使う)。
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    fn CGMainDisplayID() -> u32;
+    fn CGDisplayPixelsHigh(display: u32) -> usize;
+}
+
+/// メニューバーのアイコン (NSStatusItem) が載っているウィンドウの枠。
+/// 画面座標 (メイン画面の左下が原点・単位 point) の (x, y, w, h) と倍率を返す。
+fn status_item_frame<R: tauri::Runtime>(
+    handle: &tauri::AppHandle<R>,
+) -> Option<(f64, f64, f64, f64, f64)> {
+    let tray = handle.tray_by_id("main")?;
+    tray.with_inner_tray_icon(|inner| {
+        let item = inner.ns_status_item()?;
+        let mtm = MainThreadMarker::new()?;
+        let button = item.button(mtm)?;
+        let window = button.window()?;
+        let f = window.frame();
+        Some((
+            f.origin.x,
+            f.origin.y,
+            f.size.width,
+            f.size.height,
+            window.backingScaleFactor(),
+        ))
+    })
+    .ok()
+    .flatten()
+}
+
+fn frame_contains((x, y, w, h, _): (f64, f64, f64, f64, f64), px: f64, py: f64) -> bool {
+    px >= x && px <= x + w && py >= y && py <= y + h
+}
+
+/// アプリ外でのマウスダウンを監視する。
+///
+/// - メニューバーのアイコン上なら、左クリックでポップオーバーを開閉し、右クリックでメニューを出す。
+///   macOS 27 ではアイコンのクリックがアプリに届かず (tray-icon の mouseDown が呼ばれず
+///   `TrayIconEvent::Click` が来ない)、アプリ外のクリックとしてここに届くため。
+///   アイコンのクリックがアプリに届く OS では、ここには来ない。
+/// - それ以外の場所なら popover を hide する。NonactivatingPanel 構成では Focused(false) が
+///   発火しないため、これで代替する。
 pub fn install_outside_click_dismiss<R: tauri::Runtime + 'static>(handle: tauri::AppHandle<R>) {
-    let block = RcBlock::new(move |_event: NonNull<NSEvent>| {
+    let block = RcBlock::new(move |event: NonNull<NSEvent>| {
+        let event = unsafe { event.as_ref() };
+        let location = NSEvent::mouseLocation();
+        if let Some(frame) = status_item_frame(&handle) {
+            if frame_contains(frame, location.x, location.y) {
+                let (x, y, w, h, scale) = frame;
+                // tray-icon の get_tray_rect と同じく、メイン画面の左上原点の物理 px に直す。
+                let main_height = unsafe { CGDisplayPixelsHigh(CGMainDisplayID()) } as f64;
+                crate::tray::set_tray_rect(
+                    (x * scale).round() as i32,
+                    ((main_height - y - h) * scale).round() as i32,
+                    (w * scale).round() as i32,
+                    (h * scale).round() as i32,
+                );
+                if event.r#type() == NSEventType::RightMouseDown {
+                    crate::tray::show_tray_menu(&handle);
+                } else {
+                    crate::tray::toggle_popover_from_status_item(&handle);
+                }
+                return;
+            }
+        }
         if crate::is_popover_pinned() || crate::is_popover_auto_hide_suppressed() {
             return;
         }

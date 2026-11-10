@@ -3,7 +3,7 @@
 //! 表示: Claude は現在のセッション (5h)、Codex は週間使用量の utilization %。
 //! 5 分おき (ユーザ設定で変更可) に自動更新。429 を受けたら Retry-After を尊重。
 
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tauri::{
@@ -135,6 +135,9 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         &[&refresh_item, &wider_item, &reset_width_item, &quit_item],
     )?;
 
+    #[cfg(target_os = "macos")]
+    let _ = TRAY_MENU.set(Box::new(menu.clone()));
+
     let cache: Cache = Arc::new(Mutex::new(loading_all_usage()));
     let _ = USAGE_CACHE.set(cache.clone());
 
@@ -145,10 +148,15 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let menu_cache = cache.clone();
 
     let click_cache = cache.clone();
-    let tray = TrayIconBuilder::with_id("main")
+    let builder = TrayIconBuilder::with_id("main")
         .icon(tray_icon)
-        .icon_as_template(true)
-        .menu(&menu)
+        .icon_as_template(true);
+    // macOS ではメニューをステータス項目に登録しない。登録すると、アイコンのクリックを
+    // システム側が処理する macOS 27 では左クリックでもシステムがこのメニューを開き、
+    // ポップオーバーの開閉と交互に出る。右クリックのメニューは show_tray_menu で出す。
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.menu(&menu);
+    let tray = builder
         .show_menu_on_left_click(false)
         .title("…")
         .on_menu_event(move |_app, event| match event.id.as_ref() {
@@ -185,6 +193,16 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             } = &event
             {
                 toggle_popover(tray.app_handle(), &click_cache);
+            }
+            // アイコンのクリックがアプリに届く macOS (26 以前) の右クリック。
+            #[cfg(target_os = "macos")]
+            if let TrayIconEvent::Click {
+                button: MouseButton::Right,
+                button_state: MouseButtonState::Down,
+                ..
+            } = &event
+            {
+                show_tray_menu(tray.app_handle());
             }
         })
         .build(app)?;
@@ -428,10 +446,60 @@ fn pct(u: f64) -> u32 {
     (u * 100.0).round() as u32
 }
 
+/// トレイのメニュー。macOS 27 ではアイコンの右クリックがアプリに届かないため、
+/// `macos_panel` の監視処理からこのメニューを直接出す。`Menu<R>` は R に依存するので Any で持つ。
+#[cfg(target_os = "macos")]
+static TRAY_MENU: OnceLock<Box<dyn std::any::Any + Send + Sync>> = OnceLock::new();
+
+/// 直近にポップオーバーを開閉した時刻 (epoch ms)。1 回のクリックが tray-icon の Click と
+/// アプリ外クリックの監視処理の両方から届いた場合に、二重に開閉しないようにする。
+static LAST_TOGGLE_MS: AtomicI64 = AtomicI64::new(0);
+const TOGGLE_DEBOUNCE_MS: i64 = 300;
+
+/// アイコンの矩形 (メイン画面の左上原点・物理 px) を記録する。ポップオーバーの位置計算に使う。
+#[cfg(target_os = "macos")]
+pub(crate) fn set_tray_rect(x: i32, y: i32, w: i32, h: i32) {
+    TRAY_X.store(x, Ordering::SeqCst);
+    TRAY_Y.store(y, Ordering::SeqCst);
+    TRAY_W.store(w, Ordering::SeqCst);
+    TRAY_H.store(h, Ordering::SeqCst);
+    TRAY_RECT_SET.store(true, Ordering::SeqCst);
+}
+
+/// メニューバーのアイコンの左クリックをアプリ外クリックとして受けたときの開閉。
+#[cfg(target_os = "macos")]
+pub(crate) fn toggle_popover_from_status_item<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(cache) = USAGE_CACHE.get() {
+        toggle_popover(app, cache);
+    }
+}
+
+/// メニューバーのアイコンの右クリックをアプリ外クリックとして受けたときに、トレイのメニューを
+/// カーソル位置に出す。メニューの項目は `on_menu_event` の処理にそのまま届く。
+#[cfg(target_os = "macos")]
+pub(crate) fn show_tray_menu<R: Runtime>(app: &AppHandle<R>) {
+    use tauri::menu::ContextMenu;
+    let Some(menu) = TRAY_MENU
+        .get()
+        .and_then(|m| m.downcast_ref::<Menu<R>>())
+    else {
+        return;
+    };
+    let Some(window) = app.get_webview_window("popover") else {
+        return;
+    };
+    let _ = menu.popup(window.as_ref().window());
+}
+
 fn toggle_popover<R: Runtime>(app: &AppHandle<R>, cache: &Cache) {
     let Some(window) = app.get_webview_window("popover") else {
         return;
     };
+    let now = now_ms();
+    if now - LAST_TOGGLE_MS.load(Ordering::SeqCst) < TOGGLE_DEBOUNCE_MS {
+        return;
+    }
+    LAST_TOGGLE_MS.store(now, Ordering::SeqCst);
     if window.is_visible().unwrap_or(false) {
         if crate::is_popover_pinned() {
             let _ = window.show();
