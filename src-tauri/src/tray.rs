@@ -345,8 +345,12 @@ fn short_status(provider: Provider, r: &FetchResult, metric: TrayMetric) -> Stri
             let bucket = match provider {
                 // Codex の primary_window (旧5h) は使用せず、設定値に関係なく週次を表示。
                 Provider::Codex => snapshot.seven_day.as_ref(),
+                // 5h 枠は API が返している間だけ存在する。無ければ週間を出す。
                 Provider::Claude => match metric {
-                    TrayMetric::FiveHour => snapshot.five_hour.as_ref(),
+                    TrayMetric::FiveHour => snapshot
+                        .five_hour
+                        .as_ref()
+                        .or(snapshot.seven_day.as_ref()),
                     TrayMetric::Weekly => snapshot.seven_day.as_ref(),
                 },
             };
@@ -757,6 +761,34 @@ mod tests {
             ..UsageSnapshot::default()
         };
         assert_eq!(format_tooltip(Provider::Codex, &snapshot), "7d: 12%");
+    }
+
+    #[test]
+    fn claude_title_falls_back_to_weekly_without_five_hour() {
+        let r = FetchResult::Ok {
+            provider: Provider::Claude,
+            snapshot: UsageSnapshot {
+                five_hour: None,
+                seven_day: Some(b(0.17)),
+                seven_day_sonnet: None,
+                fetched_at: chrono::Utc::now(),
+            },
+        };
+        assert_eq!(short_status(Provider::Claude, &r, TrayMetric::FiveHour), "17%");
+    }
+
+    #[test]
+    fn claude_title_prefers_five_hour_when_present() {
+        let r = FetchResult::Ok {
+            provider: Provider::Claude,
+            snapshot: UsageSnapshot {
+                five_hour: Some(b(0.43)),
+                seven_day: Some(b(0.17)),
+                seven_day_sonnet: None,
+                fetched_at: chrono::Utc::now(),
+            },
+        };
+        assert_eq!(short_status(Provider::Claude, &r, TrayMetric::FiveHour), "43%");
     }
 
     #[test]

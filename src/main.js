@@ -171,16 +171,27 @@ function renderProvider(providerKey, result) {
   errorEl.removeAttribute("title");
   body.hidden = false;
   const heroSection = section.querySelector('[data-bucket="five_hour"]');
-  // Codex は現行仕様で週次使用量のみ。共通の hero DOM を使うが、値は weekly を渡す。
-  renderHeroBucket(
-    heroSection,
-    providerKey === "codex" ? snapshot.seven_day : snapshot.five_hour
-  );
-
-  if (providerKey === "claude") {
-    const weeklySection = section.querySelector('[data-bucket="weekly"]');
-    renderClaudeWeekly(weeklySection, snapshot.seven_day, snapshot.seven_day_sonnet);
+  if (providerKey === "codex") {
+    // Codex は現行仕様で週次使用量のみ。共通の hero DOM を使うが、値は weekly を渡す。
+    renderHeroBucket(heroSection, snapshot.seven_day);
+    return;
   }
+
+  // Claude の 5h 枠は API が返している間だけ存在する。無いときは大きい数字とバーに
+  // 週間を出し (Codex と同じ data-kind="weekly")、下の週間行は Sonnet 週間だけを残す。
+  const heroWeekly = !snapshot.five_hour && !!snapshot.seven_day;
+  section.dataset.hero = heroWeekly ? "weekly" : "five_hour";
+  section.dataset.hasSonnet = String(showSonnet && !!snapshot.seven_day_sonnet);
+  if (heroWeekly) heroSection.dataset.kind = "weekly";
+  else delete heroSection.dataset.kind;
+  heroSection.querySelector("[data-hero-title]").textContent = heroWeekly
+    ? "Weekly"
+    : "Session (5h)";
+  heroSection.querySelector("[data-hero-label]").textContent = heroWeekly ? "w" : "5h";
+  renderHeroBucket(heroSection, heroWeekly ? snapshot.seven_day : snapshot.five_hour);
+
+  const weeklySection = section.querySelector('[data-bucket="weekly"]');
+  renderClaudeWeekly(weeklySection, snapshot.seven_day, snapshot.seven_day_sonnet);
 }
 
 function render(all) {
