@@ -214,7 +214,9 @@ mod tests {
 
     fn snapshot_of(json: &str, now: &str) -> UsageSnapshot {
         let raw: RawUsage = serde_json::from_str(json).expect("valid usage json");
-        let now = DateTime::parse_from_rfc3339(now).unwrap().with_timezone(&Utc);
+        let now = DateTime::parse_from_rfc3339(now)
+            .unwrap()
+            .with_timezone(&Utc);
         raw.into_snapshot(now)
     }
 
@@ -358,8 +360,7 @@ pub async fn fetch_usage(access_token: &str) -> Result<UsageSnapshot, ApiError> 
         .text()
         .await
         .map_err(|e| ApiError::Decode(e.to_string()))?;
-    let raw: RawUsage =
-        serde_json::from_str(&body).map_err(|e| ApiError::Decode(e.to_string()))?;
+    let raw: RawUsage = serde_json::from_str(&body).map_err(|e| ApiError::Decode(e.to_string()))?;
 
     Ok(raw.into_snapshot(Utc::now()))
 }

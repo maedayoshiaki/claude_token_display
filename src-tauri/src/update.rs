@@ -63,10 +63,7 @@ fn current_version() -> String {
 fn parse_version(raw: &str) -> Option<(u64, u64, u64)> {
     let trimmed = raw.trim().trim_start_matches(['v', 'V']);
     // "1.2.3-beta+build" → core "1.2.3" だけ見る
-    let core = trimmed
-        .split(['-', '+'])
-        .next()
-        .unwrap_or(trimmed);
+    let core = trimmed.split(['-', '+']).next().unwrap_or(trimmed);
     let mut parts = core.split('.').map(|p| p.parse::<u64>().ok());
     let major = parts.next().flatten()?;
     let minor = parts.next().flatten().unwrap_or(0);

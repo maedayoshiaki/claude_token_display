@@ -652,7 +652,10 @@ mod tests {
         let pt = format!(
             r#"{{"9d1c:org-123:https://api.anthropic.com:user:inference user:profile":{{"token":"sk-ant-oat01-v2","refreshToken":"r","expiresAt":{future},"subscriptionType":"max","rateLimitTier":"tier_1"}}}}"#
         );
-        assert_eq!(parse_access_token(pt.as_bytes()).unwrap(), "sk-ant-oat01-v2");
+        assert_eq!(
+            parse_access_token(pt.as_bytes()).unwrap(),
+            "sk-ant-oat01-v2"
+        );
         let credential = parse_credential(pt.as_bytes()).unwrap();
         assert_eq!(credential.organization_uuid.as_deref(), Some("org-123"));
         assert_eq!(credential.subscription_type.as_deref(), Some("max"));
@@ -766,13 +769,19 @@ mod tests {
     #[test]
     fn parse_empty_access_token_is_rejected() {
         let pt = br#"{"claudeAiOauth":{"accessToken":""}}"#;
-        assert!(matches!(parse_access_token(pt), Err(DesktopError::EmptyToken)));
+        assert!(matches!(
+            parse_access_token(pt),
+            Err(DesktopError::EmptyToken)
+        ));
     }
 
     #[test]
     fn parse_no_token_errors() {
         let pt = br#"{"something":"else"}"#;
-        assert!(matches!(parse_access_token(pt), Err(DesktopError::EmptyToken)));
+        assert!(matches!(
+            parse_access_token(pt),
+            Err(DesktopError::EmptyToken)
+        ));
     }
 
     #[test]

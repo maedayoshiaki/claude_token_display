@@ -59,8 +59,7 @@ const CLI_TOKEN_EXPIRY_MARGIN_MS: i64 = 60_000;
 pub const MIN_UPDATE_CHECK_INTERVAL_SECS: u64 = 3_600;
 pub const MAX_UPDATE_CHECK_INTERVAL_SECS: u64 = 7 * 24 * 3_600;
 pub const DEFAULT_UPDATE_CHECK_INTERVAL_SECS: u64 = 6 * 3_600;
-static UPDATE_CHECK_INTERVAL_SECS: AtomicU64 =
-    AtomicU64::new(DEFAULT_UPDATE_CHECK_INTERVAL_SECS);
+static UPDATE_CHECK_INTERVAL_SECS: AtomicU64 = AtomicU64::new(DEFAULT_UPDATE_CHECK_INTERVAL_SECS);
 
 /// 更新チェック間隔の変更時にチェッカーを起こす notifier。
 static UPDATE_WAKE: OnceLock<Arc<Notify>> = OnceLock::new();
@@ -152,7 +151,11 @@ fn access_stats() -> AccessStats {
     let cutoff = now - ONE_HOUR_MS;
     let last_hour = API_ACCESS_LOG
         .get()
-        .and_then(|m| m.lock().ok().map(|v| v.iter().filter(|&&t| t >= cutoff).count()))
+        .and_then(|m| {
+            m.lock()
+                .ok()
+                .map(|v| v.iter().filter(|&&t| t >= cutoff).count())
+        })
         .unwrap_or(0);
     AccessStats {
         total: API_ACCESS_TOTAL.load(Ordering::SeqCst),
@@ -1127,7 +1130,10 @@ mod tests {
             &claude_desktop::DesktopError::NotFound,
         );
         assert!(msg.contains("claude") || msg.contains("Claude"));
-        assert!(!msg.contains("Claude Code:"), "should be the friendly hint, not the diagnostic form");
+        assert!(
+            !msg.contains("Claude Code:"),
+            "should be the friendly hint, not the diagnostic form"
+        );
     }
 
     #[test]
@@ -1152,7 +1158,10 @@ mod tests {
 
     #[test]
     fn provider_roundtrips_via_u8() {
-        assert_eq!(Provider::from_u8(Provider::Claude.as_u8()), Provider::Claude);
+        assert_eq!(
+            Provider::from_u8(Provider::Claude.as_u8()),
+            Provider::Claude
+        );
         assert_eq!(Provider::from_u8(Provider::Codex.as_u8()), Provider::Codex);
         // unknown values fall back to Claude
         assert_eq!(Provider::from_u8(42), Provider::Claude);
