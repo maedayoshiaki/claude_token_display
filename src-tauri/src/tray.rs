@@ -16,8 +16,8 @@ use tauri_plugin_positioner::{Position, WindowExt};
 use crate::{
     api::UsageSnapshot, current_poll_interval_secs, current_tray_metric, fetch_all_usage,
     poll_wake, request_poll_fetch, resize_popover_width, take_poll_fetch_request, AllUsage,
-    FetchResult, Provider, TrayMetric, POPOVER_DEFAULT_WIDTH, POPOVER_WIDTH_STEP,
-    MIN_POLL_INTERVAL_SECS,
+    FetchResult, Provider, TrayMetric, MIN_POLL_INTERVAL_SECS, POPOVER_DEFAULT_WIDTH,
+    POPOVER_WIDTH_STEP,
 };
 
 const INITIAL_DELAY_SECS: u64 = 2;
@@ -365,10 +365,9 @@ fn short_status(provider: Provider, r: &FetchResult, metric: TrayMetric) -> Stri
                 Provider::Codex => snapshot.seven_day.as_ref(),
                 // 5h 枠は API が返している間だけ存在する。無ければ週間を出す。
                 Provider::Claude => match metric {
-                    TrayMetric::FiveHour => snapshot
-                        .five_hour
-                        .as_ref()
-                        .or(snapshot.seven_day.as_ref()),
+                    TrayMetric::FiveHour => {
+                        snapshot.five_hour.as_ref().or(snapshot.seven_day.as_ref())
+                    }
                     TrayMetric::Weekly => snapshot.seven_day.as_ref(),
                 },
             };
@@ -479,10 +478,7 @@ pub(crate) fn toggle_popover_from_status_item<R: Runtime>(app: &AppHandle<R>) {
 #[cfg(target_os = "macos")]
 pub(crate) fn show_tray_menu<R: Runtime>(app: &AppHandle<R>) {
     use tauri::menu::ContextMenu;
-    let Some(menu) = TRAY_MENU
-        .get()
-        .and_then(|m| m.downcast_ref::<Menu<R>>())
-    else {
+    let Some(menu) = TRAY_MENU.get().and_then(|m| m.downcast_ref::<Menu<R>>()) else {
         return;
     };
     let Some(window) = app.get_webview_window("popover") else {
@@ -842,7 +838,10 @@ mod tests {
                 fetched_at: chrono::Utc::now(),
             },
         };
-        assert_eq!(short_status(Provider::Claude, &r, TrayMetric::FiveHour), "17%");
+        assert_eq!(
+            short_status(Provider::Claude, &r, TrayMetric::FiveHour),
+            "17%"
+        );
     }
 
     #[test]
@@ -856,7 +855,10 @@ mod tests {
                 fetched_at: chrono::Utc::now(),
             },
         };
-        assert_eq!(short_status(Provider::Claude, &r, TrayMetric::FiveHour), "43%");
+        assert_eq!(
+            short_status(Provider::Claude, &r, TrayMetric::FiveHour),
+            "43%"
+        );
     }
 
     #[test]

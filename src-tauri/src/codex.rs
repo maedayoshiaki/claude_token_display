@@ -52,16 +52,8 @@ pub fn read_credentials() -> Result<CodexCredentials, CodexAuthError> {
     let path = codex_auth_path()?;
     let raw = match std::fs::read_to_string(&path) {
         Ok(s) => s,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Err(CodexAuthError::NotFound)
-        }
-        Err(e) => {
-            return Err(CodexAuthError::Access(format!(
-                "{}: {}",
-                path.display(),
-                e
-            )))
-        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(CodexAuthError::NotFound),
+        Err(e) => return Err(CodexAuthError::Access(format!("{}: {}", path.display(), e))),
     };
     let parsed: AuthFile =
         serde_json::from_str(&raw).map_err(|e| CodexAuthError::Decode(e.to_string()))?;
