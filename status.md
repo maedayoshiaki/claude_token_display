@@ -39,7 +39,7 @@
 
 ## 進行中
 
-(なし — v0.7.1 リリース時点で今回の作業は完了)
+- **今週の内訳の表示** (`feat/usage-breakdown`, 2026-11-21, 未リリース)。設定「今週の内訳」に research の token-usage が書く `summary.json` の場所を入れたときだけ、Claude の週間行の下に作業の種類ごとの今週の % 相当と額 (上位 3 つ) と「elsewhere」(この PC 以外) の % を出す。組織 ID は使用量の取得と同じく Claude Code → Claude Desktop の順で選び、合うアカウントがない・ファイルが 2 時間より古いときは出さない (`usage_summary.rs`)。表示の候補ではいちばん大きい card でだけ出し、収まらなければ最初に外す。`cargo test` (95 件通過、1 件は ignored) と `npm run test:layout` (Edge、13 条件 × 224 寸法 = 2912 通りで問題なし) を確認。実機 (Tauri) での表示は未確認 (起動中のアプリがあると多重起動防止で開発版が起動しないため)
 
 ## 既知の課題 / TODO
 

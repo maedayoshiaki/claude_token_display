@@ -103,7 +103,7 @@ function check(results) {
         const visible = r.shown.some((n) => n.startsWith(p + "."));
         const hasPct = r.shown.includes(p + ".5h") || r.shown.includes(p + ".weekly");
         const hasErr = r.shown.includes(p + ".error");
-        const expected = sc !== `solo-${p === "claude" ? "codex" : "claude"}`;
+        const expected = !sc.startsWith(`solo-${p === "claude" ? "codex" : "claude"}`);
         if (expected && !visible) problems.push(`${at} ${p} が出ていない`);
         else if (expected && !hasPct && !hasErr) problems.push(`${at} ${p} の % が出ていない`);
       }

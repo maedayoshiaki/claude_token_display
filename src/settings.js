@@ -16,6 +16,7 @@ const CLAUDE_VISIBLE_KEY = "token_display_claude_visible";
 const CODEX_VISIBLE_KEY = "token_display_codex_visible";
 const WEEKLY_VISIBLE_KEY = "token_display_weekly_visible";
 const RESETS_VISIBLE_KEY = "token_display_resets_visible";
+const USAGE_SUMMARY_PATH_KEY = "token_display_usage_summary_path";
 const TRAY_METRIC_KEY = "token_display_tray_metric";
 const MINI_METRIC_KEY = "token_display_mini_metric";
 const TRAY_CLAUDE_KEY = "token_display_tray_claude";
@@ -52,6 +53,7 @@ let showClaude = true;
 let showCodex = true;
 let showWeekly = true;
 let showResets = true;
+let usageSummaryPath = "";
 let trayMetric = "five_hour";
 let miniMetric = "five_hour";
 let trayShowClaude = true;
@@ -114,6 +116,7 @@ function viewSnapshot() {
     showWeekly,
     showResets,
     showSonnet,
+    usageSummaryPath,
     textScale,
     miniMetric,
     theme,
@@ -145,6 +148,11 @@ async function init() {
   showWeekly = getBool(WEEKLY_VISIBLE_KEY, true);
   showResets = getBool(RESETS_VISIBLE_KEY, true);
   updateNotify = getBool(UPDATE_NOTIFY_KEY, true);
+  try {
+    usageSummaryPath = localStorage.getItem(USAGE_SUMMARY_PATH_KEY) || "";
+  } catch {
+    usageSummaryPath = "";
+  }
   try {
     theme = localStorage.getItem(THEME_KEY) || "auto";
   } catch {
@@ -190,6 +198,7 @@ function renderControls() {
   $("#weekly-toggle").checked = showWeekly;
   $("#sonnet-toggle").checked = showSonnet;
   $("#resets-toggle").checked = showResets;
+  $("#usage-summary-path").value = usageSummaryPath;
   $("#theme-select").value = theme;
   $("#scale-input").value = textScale.toFixed(2);
   $("#width-input").value = widthValue;
@@ -319,6 +328,13 @@ bindToggle("#bar-toggle", BAR_VISIBLE_KEY, (v) => (showBar = v));
 bindToggle("#weekly-toggle", WEEKLY_VISIBLE_KEY, (v) => (showWeekly = v));
 bindToggle("#sonnet-toggle", SONNET_VISIBLE_KEY, (v) => (showSonnet = v));
 bindToggle("#resets-toggle", RESETS_VISIBLE_KEY, (v) => (showResets = v));
+
+// 今週の内訳 (token-usage の summary.json)。空にすると出さない。
+$("#usage-summary-path").addEventListener("change", (e) => {
+  usageSummaryPath = e.target.value.trim();
+  setStr(USAGE_SUMMARY_PATH_KEY, usageSummaryPath);
+  broadcast();
+});
 
 // ───── テーマ ─────
 $("#theme-select").addEventListener("change", (e) => {

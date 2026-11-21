@@ -590,6 +590,22 @@ body[data-show-weekly="false"] .bucket--weekly,
 body[data-show-weekly="false"] .bucket--hero[data-kind="weekly"] {
   display: none !important;
 }
+/* token-usage の summary.json から読んだ今週の内訳。設定でファイルを指定したときだけ出す。 */
+.breakdown {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.8em;
+  line-height: 1.25;
+  color: var(--fg-dim);
+}
+.breakdown__line {
+  white-space: nowrap;
+}
+.breakdown[hidden],
+body[data-breakdown="0"] .breakdown {
+  display: none;
+}
+
 body[data-show-resets="false"] .bucket__resets {
   display: none !important;
 }

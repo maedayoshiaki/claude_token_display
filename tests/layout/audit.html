@@ -57,6 +57,9 @@ const SCENARIOS = [
   { id: "mini-weekly", settings: { miniMetric: "weekly" } },
   { id: "no-5h", settings: {}, noFiveHour: true },
   { id: "no-5h-no-sonnet", settings: {}, noFiveHour: true, noSonnet: true },
+  // token-usage の内訳を出す場合 (ラベルと額は長い側に寄せる)。
+  { id: "breakdown", settings: { usageSummaryPath: "summary.json" }, breakdown: true },
+  { id: "solo-claude-breakdown", settings: { usageSummaryPath: "summary.json", showCodex: false }, breakdown: true },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -64,7 +67,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const STUB = `<script>
 window.__L = {};
 window.__TAURI__ = {
-  core: { invoke: async (cmd) => (cmd === "get_popover_pinned" ? false : null) },
+  core: { invoke: async (cmd) => (cmd === "get_popover_pinned" ? false : cmd === "get_usage_breakdown" ? (window.__BREAKDOWN || null) : null) },
   event: { listen: async (name, cb) => { window.__L[name] = cb; } },
   window: { getCurrentWindow: () => ({ setResizable: async () => {}, startDragging: async () => {}, startResizeDragging: async () => {} }) },
 };
@@ -90,6 +93,7 @@ function items(d) {
     out.push([p + ".5hReset", q('[data-bucket="five_hour"] [data-resets]'), "data"]);
     out.push([p + ".weekly", q(".bucket__pct--weekly"), "data"]);
     if (p === "claude") out.push([p + ".sonnet", q("[data-sonnet-wrap]"), "data"]);
+    if (p === "claude") out.push([p + ".breakdown", q("[data-breakdown]"), "data"]);
     out.push([p + ".wReset", q('[data-bucket="weekly"] [data-resets]'), "data"]);
     out.push([p + ".error", q("[data-error]"), "error"]);
   }
@@ -148,7 +152,7 @@ function measure(f) {
   const w = f.contentWindow;
   const ds = d.body.dataset;
   const res = {
-    view: ["form", "names", "sonnet", "resets", "metric", "icons", "footer", "titles", "bar"].map((k) => ds[k]).join(" "),
+    view: ["form", "names", "sonnet", "resets", "metric", "icons", "footer", "titles", "bar", "breakdown"].map((k) => ds[k]).join(" "),
     form: ds.form,
     fit: parseFloat(d.documentElement.style.getPropertyValue("--fit-scale") || "1"),
     content: (() => {
@@ -204,6 +208,12 @@ async function runScenario(sc, html) {
   const st = f.contentDocument.createElement("style");
   st.textContent = "*{transition:none!important}";
   f.contentDocument.head.appendChild(st);
+  if (sc.breakdown) {
+    w.__BREAKDOWN = { weekly_pct: 88.0, other_pct: 12.5, items: [
+      { label: "エージェントの設定", usd: 1234.0, pct: 45.6 },
+      { label: "Yoshida-Compensation", usd: 999.0, pct: 33.3 },
+      { label: "hires-hsi", usd: 88.0, pct: null }] };
+  }
   w.__L["usage-updated"]({ payload: usage(sc) });
   if (Object.keys(sc.settings).length) w.__L["settings-changed"]({ payload: sc.settings });
   if (sc.banner) w.__L["update-available"]({ payload: { available: true, latest: "9.9.9" } });

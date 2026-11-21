@@ -6,6 +6,7 @@ mod keychain;
 mod macos_panel;
 mod tray;
 mod update;
+mod usage_summary;
 
 use api::UsageSnapshot;
 use serde::{Deserialize, Serialize};
@@ -339,6 +340,22 @@ fn get_access_stats() -> AccessStats {
 #[tauri::command]
 fn get_credential_info() -> CredentialInfo {
     credential_info()
+}
+
+/// 設定で指定した summary.json (research の token-usage が書く) から、いま使用枠を表示している
+/// アカウントの今週の内訳を返す。組織 ID は使用量の取得と同じく Claude Code → Claude Desktop の順で選ぶ。
+#[tauri::command]
+fn get_usage_breakdown(path: String) -> Option<usage_summary::UsageBreakdown> {
+    if path.trim().is_empty() {
+        return None;
+    }
+    let info = credential_info();
+    let org = if info.claude_code.available && !info.claude_code.expired {
+        info.claude_code.organization_uuid
+    } else {
+        info.claude_desktop.organization_uuid
+    }?;
+    usage_summary::read_breakdown(path.trim(), &org, now_ms())
 }
 
 pub async fn fetch_all_usage() -> AllUsage {
@@ -944,6 +961,7 @@ pub fn run() {
             force_reload_now,
             get_access_stats,
             get_credential_info,
+            get_usage_breakdown,
             get_popover_pinned,
             set_popover_pinned,
             suppress_popover_auto_hide,

@@ -14,6 +14,7 @@ const CLAUDE_VISIBLE_KEY = "token_display_claude_visible";
 const CODEX_VISIBLE_KEY = "token_display_codex_visible";
 const WEEKLY_VISIBLE_KEY = "token_display_weekly_visible";
 const RESETS_VISIBLE_KEY = "token_display_resets_visible";
+const USAGE_SUMMARY_PATH_KEY = "token_display_usage_summary_path";
 const TRAY_METRIC_KEY = "token_display_tray_metric";
 const MINI_METRIC_KEY = "token_display_mini_metric";
 const TRAY_CLAUDE_KEY = "token_display_tray_claude";
@@ -31,7 +32,7 @@ const TEXT_SCALE_STEP = 0.05;
 // 大きさまで縮められる)。
 const FIT_SCALE_MIN = 0.35;
 // 表示の候補を表す body の data 属性 (styles.css の「小窓」の節を参照)。
-const VIEW_KEYS = ["form", "icons", "footer", "titles", "bar", "names", "sonnet", "resets", "metric"];
+const VIEW_KEYS = ["form", "icons", "footer", "titles", "bar", "names", "sonnet", "resets", "metric", "breakdown"];
 const POPOVER_WIDTH_MIN = 1;
 const POPOVER_WIDTH_MAX = 640;
 const POPOVER_WIDTH_STEP = 24;
@@ -54,6 +55,8 @@ let showClaude = true;
 let showCodex = true;
 let showWeekly = true;
 let showResets = true;
+// token-usage の summary.json の場所。空なら内訳を出さない。
+let usageSummaryPath = "";
 let trayMetric = "five_hour";
 let miniMetric = "five_hour";
 let updateIntervalHours = DEFAULT_UPDATE_INTERVAL_HOURS;
@@ -208,10 +211,47 @@ function render(all) {
   $("#updated-at").textContent = "updated " + latest.toLocaleTimeString();
   // 文字列の長さ (桁数・時刻・エラー文) が変わると収まり方も変わるので選び直す。
   chooseView();
+  refreshBreakdown();
 }
 
 function rerender() {
   if (lastAllUsage) render(lastAllUsage);
+}
+
+// 今週の内訳を描く。b は get_usage_breakdown の結果 (null なら隠す)。
+function renderBreakdown(b) {
+  const el = document.querySelector('.provider[data-provider="claude"] [data-breakdown]');
+  if (!el) return;
+  el.textContent = "";
+  if (!b || !b.items || !b.items.length) {
+    el.hidden = true;
+    return;
+  }
+  const money = (v) => "$" + Math.round(v);
+  const lines = b.items.map((i) =>
+    i.pct == null ? `${i.label} ${money(i.usd)}` : `${i.label} ${i.pct.toFixed(1)}% · ${money(i.usd)}`,
+  );
+  if (b.other_pct != null) lines.push(`elsewhere ${b.other_pct.toFixed(1)}%`);
+  for (const text of lines) {
+    const line = document.createElement("span");
+    line.className = "breakdown__line";
+    line.textContent = text;
+    el.appendChild(line);
+  }
+  el.hidden = false;
+}
+
+async function refreshBreakdown() {
+  let b = null;
+  if (usageSummaryPath) {
+    try {
+      b = await invoke("get_usage_breakdown", { path: usageSummaryPath });
+    } catch {
+      b = null;
+    }
+  }
+  renderBreakdown(b);
+  chooseView();
 }
 
 // ───────── 表示の選び方 ─────────
@@ -238,7 +278,9 @@ function buildViewCandidates() {
     { icons: "overlay", footer: "0", titles: "0", bar: "1" },
     { icons: "overlay", footer: "0", titles: "0", bar: "0" },
   ];
-  for (const decor of cardDecor) cands.push({ form: "card", ...decor, ...all });
+  // 今週の内訳 (token-usage) は、いちばん大きい card でだけ出し、収まらなければ最初に外す。
+  cands.push({ form: "card", ...cardDecor[0], ...all, breakdown: "1" });
+  for (const decor of cardDecor) cands.push({ form: "card", ...decor, ...all, breakdown: "0" });
 
   const levels = [
     all,
@@ -255,7 +297,7 @@ function buildViewCandidates() {
   const seen = new Set();
   for (const level of levels) {
     for (const form of forms) {
-      const cand = { form, icons: "overlay", footer: "0", titles: "0", bar: "0", ...level };
+      const cand = { form, icons: "overlay", footer: "0", titles: "0", bar: "0", breakdown: "0", ...level };
       const key = VIEW_KEYS.map((k) => cand[k]).join("|");
       if (seen.has(key)) continue;
       seen.add(key);
@@ -599,6 +641,10 @@ function applyViewSettings(s) {
   if (typeof s.showSonnet === "boolean") {
     showSonnet = s.showSonnet;
   }
+  if (typeof s.usageSummaryPath === "string" && s.usageSummaryPath !== usageSummaryPath) {
+    usageSummaryPath = s.usageSummaryPath;
+    refreshBreakdown();
+  }
   if (typeof s.miniMetric === "string") {
     miniMetric = s.miniMetric;
   }
@@ -639,6 +685,11 @@ async function initSettings() {
   showWeekly = loadStoredBool(WEEKLY_VISIBLE_KEY);
   showResets = loadStoredBool(RESETS_VISIBLE_KEY);
   updateNotify = loadStoredBool(UPDATE_NOTIFY_KEY);
+  try {
+    usageSummaryPath = localStorage.getItem(USAGE_SUMMARY_PATH_KEY) || "";
+  } catch {
+    usageSummaryPath = "";
+  }
   applyTheme(loadStoredTheme());
 
   document.body.dataset.showBar = String(showBar);
